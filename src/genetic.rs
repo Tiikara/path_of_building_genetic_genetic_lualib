@@ -6,10 +6,10 @@ use mlua::Value;
 use rand::prelude::ThreadRng;
 use rand::Rng;
 use crate::dna::Dna;
-use crate::globals_channels::{DnaCommand, READER_DNA_QUEUE_CHANNEL, READER_DNA_RESULT_QUEUE_CHANNEL, WRITER_DNA_QUEUE_CHANNEL, WRITER_DNA_RESULT_QUEUE_CHANNEL};
+use crate::globals_channels::{DnaCommand, READER_DNA_QUEUE_CHANNEL, READER_DNA_RESULT_QUEUE_CHANNEL, Reinit, WRITER_DNA_QUEUE_CHANNEL, WRITER_DNA_RESULT_QUEUE_CHANNEL};
 
 
-fn init_genetic_solver(_: &Lua) {
+pub fn init_genetic_solver(_: &Lua, (): ()) -> LuaResult<()> {
     let (writer_dna_queue_channel, reader_dna_queue_channel): (Sender<*mut DnaCommand>, Receiver<*mut DnaCommand>) =
         mpsc::channel();
 
@@ -22,18 +22,20 @@ fn init_genetic_solver(_: &Lua) {
         mpsc::channel();
 
     unsafe {
-        WRITER_DNA_RESULT_QUEUE_CHANNEL = Some(writer_dna_result_queue_channel);
+        WRITER_DNA_RESULT_QUEUE_CHANNEL = Some(Mutex::new(writer_dna_result_queue_channel));
         READER_DNA_RESULT_QUEUE_CHANNEL = Some(reader_dna_result_queue_channel);
     }
+
+    Ok(())
 }
 
-fn start_genetic_solver(
+pub fn start_genetic_solver(
     lua_context: &Lua,
-    max_generations_count: usize,
-    stop_generations_eps: usize,
-    population_max_generation_size: usize,
-    tree_nodes_count: usize
-) -> LuaTable
+    (max_generations_count,
+        stop_generations_eps,
+        population_max_generation_size,
+        tree_nodes_count): (usize, usize, usize, usize),
+) -> LuaResult<LuaTable>
 {
     if population_max_generation_size % 2 != 0
     {
@@ -72,7 +74,7 @@ fn start_genetic_solver(
         writer_dna_queue_channel,
         reader_dna_result_queue_channel,
         &mut alloc_dna_commands,
-        &mut population[0..population_len]
+        &mut population[0..population_len],
     );
 
     population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
@@ -98,7 +100,7 @@ fn start_genetic_solver(
             writer_dna_queue_channel,
             reader_dna_result_queue_channel,
             &mut alloc_dna_commands,
-            &mut population[start_mutated_index..population_len]
+            &mut population[start_mutated_index..population_len],
         );
 
         population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
@@ -106,8 +108,7 @@ fn start_genetic_solver(
         let count_of_fucks =
             if population_max_generation_size / 2 > population.len() {
                 population.len()
-            }
-            else {
+            } else {
                 population_max_generation_size / 2
             };
 
@@ -115,7 +116,7 @@ fn start_genetic_solver(
             &population[0..count_of_fucks],
             &population[0..population.len()],
             &mut bastards,
-            &mut rng
+            &mut rng,
         );
 
         let bastards_len = bastards.len();
@@ -123,7 +124,7 @@ fn start_genetic_solver(
             writer_dna_queue_channel,
             reader_dna_result_queue_channel,
             &mut alloc_dna_commands,
-            &mut bastards[..bastards_len]
+            &mut bastards[..bastards_len],
         );
 
         population.truncate(population_max_generation_size / 2);
@@ -138,9 +139,7 @@ fn start_genetic_solver(
         {
             best_dna = population[0].clone();
             count_generations_with_best = 0;
-        }
-        else
-        {
+        } else {
             count_generations_with_best += 1;
         }
 
@@ -150,7 +149,7 @@ fn start_genetic_solver(
         }
     }
 
-    create_table_from_dna(lua_context, &best_dna)
+    Ok(create_table_from_dna(lua_context, &best_dna))
 }
 
 fn calc_fitness_with_worker(writer_dna_queue_channel: &Sender<*mut DnaCommand>,
@@ -161,7 +160,7 @@ fn calc_fitness_with_worker(writer_dna_queue_channel: &Sender<*mut DnaCommand>,
     for (i, dna) in dnas.iter_mut().enumerate() {
         let dna_command = &mut alloc_dna_commands[i];
 
-        dna_command.is_reinit = false;
+        dna_command.reinit = None;
         dna_command.stop_thread = false;
         dna_command.dna = Some(&mut **dna);
 

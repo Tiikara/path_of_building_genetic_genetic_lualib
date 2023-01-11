@@ -19,5 +19,5 @@ pub struct DnaCommand {
 pub static mut WRITER_DNA_QUEUE_CHANNEL: Option<Sender<*mut DnaCommand>> = None;
 pub static mut READER_DNA_QUEUE_CHANNEL: Option<Mutex<Receiver<*mut DnaCommand>>> = None;
 
-pub static mut WRITER_DNA_RESULT_QUEUE_CHANNEL: Option<Sender<i8>> = None;
+pub static mut WRITER_DNA_RESULT_QUEUE_CHANNEL: Option<Mutex<Sender<i8>>> = None;
 pub static mut READER_DNA_RESULT_QUEUE_CHANNEL: Option<Receiver<i8>> = None;

@@ -2,6 +2,7 @@ mod genetic;
 mod dna;
 mod worker;
 mod globals_channels;
+mod lua_module;
 
 #[cfg(test)]
 mod tests {
