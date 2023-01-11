@@ -1,9 +1,8 @@
-use std::ops::{Range, RangeInclusive};
-use rand::distributions::uniform::SampleRange;
+use std::ops::{RangeInclusive};
 use rand::Rng;
 use rand::rngs::ThreadRng;
 
-const MAX_MUTATE_CLUSTER_SIZE: i32 = 4;
+const MAX_MUTATE_CLUSTER_SIZE: usize = 4;
 
 #[derive(Clone)]
 pub struct Dna {
@@ -20,7 +19,7 @@ impl Dna {
     }
 
     pub fn mutate(&mut self, rng: &mut ThreadRng) {
-        let mutate_cluster_size = rng.gen_range(1..self.body.len() + 1);
+        let mutate_cluster_size = rng.gen_range(1..=MAX_MUTATE_CLUSTER_SIZE);
         let start_num = rng.gen_range(0..self.body.len() - mutate_cluster_size);
 
         let body_slice = &mut self.body[start_num..start_num+mutate_cluster_size];

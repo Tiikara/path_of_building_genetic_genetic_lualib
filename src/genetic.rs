@@ -1,12 +1,11 @@
-use std::cmp::Ordering;
 use std::sync::{mpsc, Mutex};
 use std::sync::mpsc::{Receiver, Sender};
 use mlua::prelude::*;
-use mlua::Value;
+
 use rand::prelude::ThreadRng;
 use rand::Rng;
 use crate::dna::Dna;
-use crate::globals_channels::{DnaCommand, READER_DNA_QUEUE_CHANNEL, READER_DNA_RESULT_QUEUE_CHANNEL, Reinit, WRITER_DNA_QUEUE_CHANNEL, WRITER_DNA_RESULT_QUEUE_CHANNEL};
+use crate::globals_channels::{DnaCommand, READER_DNA_QUEUE_CHANNEL, READER_DNA_RESULT_QUEUE_CHANNEL, WRITER_DNA_QUEUE_CHANNEL, WRITER_DNA_RESULT_QUEUE_CHANNEL};
 
 
 pub fn init_genetic_solver(_: &Lua, (): ()) -> LuaResult<()> {
