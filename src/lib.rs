@@ -1,5 +1,7 @@
 mod genetic;
 mod dna;
+mod worker;
+mod globals_channels;
 
 #[cfg(test)]
 mod tests {
