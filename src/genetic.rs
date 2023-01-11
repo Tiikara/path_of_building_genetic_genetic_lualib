@@ -1,6 +1,5 @@
 use std::{fs, thread, time};
-use std::sync::{mpsc, Mutex};
-use std::sync::mpsc::{Receiver, Sender};
+use crossbeam::channel::{Receiver, Sender, unbounded};
 use mlua::prelude::*;
 
 use rand::prelude::ThreadRng;
@@ -10,24 +9,25 @@ use crate::globals_channels::{DNA_PROCESS, DnaCommand, READER_DNA_QUEUE_CHANNEL,
 
 
 pub fn init_genetic_solver(_: &Lua, (): ()) -> LuaResult<()> {
-    let (writer_dna_queue_channel, reader_dna_queue_channel): (Sender<*mut DnaCommand>, Receiver<*mut DnaCommand>) =
-        mpsc::channel();
+    let (writer_dna_queue_channel, reader_dna_queue_channel) =
+        unbounded();
 
     unsafe {
         WRITER_DNA_QUEUE_CHANNEL = Some(writer_dna_queue_channel);
-        READER_DNA_QUEUE_CHANNEL = Some(Mutex::new(reader_dna_queue_channel));
+        READER_DNA_QUEUE_CHANNEL = Some(reader_dna_queue_channel);
     }
 
-    let (writer_dna_result_queue_channel, reader_dna_result_queue_channel): (Sender<i8>, Receiver<i8>) =
-        mpsc::channel();
+    let (writer_dna_result_queue_channel, reader_dna_result_queue_channel) =
+        unbounded();
 
     unsafe {
-        WRITER_DNA_RESULT_QUEUE_CHANNEL = Some(Mutex::new(writer_dna_result_queue_channel));
+        WRITER_DNA_RESULT_QUEUE_CHANNEL = Some(writer_dna_result_queue_channel);
         READER_DNA_RESULT_QUEUE_CHANNEL = Some(reader_dna_result_queue_channel);
     }
 
     Ok(())
 }
+
 
 pub fn start_genetic_solver(
     lua_context: &Lua,
@@ -48,11 +48,11 @@ pub fn start_genetic_solver(
         DNA_PROCESS.number += 1;
     }
 
-    let mut alloc_dna_commands: Vec<DnaCommand> = vec![Default::default(); 10000];
+    let mut alloc_dna_commands: Vec<DnaCommand> = vec![Default::default(); 20000];
 
-    let mut population = Vec::with_capacity(10000);
+    let mut population = Vec::with_capacity(20000);
 
-    let mut bastards = Vec::with_capacity(10000);
+    let mut bastards = Vec::with_capacity(20000);
 
     let mut rng = rand::thread_rng();
 
@@ -171,8 +171,6 @@ fn calc_fitness_with_worker(writer_dna_queue_channel: &Sender<*mut DnaCommand>,
         writer_dna_queue_channel.send(&mut alloc_dna_commands[i]).expect("Cannot send dna to queue");
     }
 
-    thread::sleep(time::Duration::from_millis(1000));
-
     for _ in 0..dnas.len() {
         reader_dna_result_queue_channel.recv().expect("Cannot receive dna result signal");
     }
@@ -198,7 +196,7 @@ pub fn create_table_dna_data_from_dna<'a>(lua_context: &'a Lua, dna: &Dna) -> Lu
     for (index, nucl) in dna.body.iter().enumerate() {
         if *nucl == 1
         {
-            nodes_dna_table.set(index, 1).expect("Nu kak to tak");
+            nodes_dna_table.set(index + 1, 1).expect("Nu kak to tak");
         }
     }
 

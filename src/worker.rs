@@ -22,7 +22,7 @@ pub fn worker_receive_next_command(
         }
     };
 
-    let dna_command_ptr = reader_dna_queue_channel.lock().unwrap().recv().unwrap();
+    let dna_command_ptr = reader_dna_queue_channel.recv().unwrap();
 
     let dna_command = unsafe { &*dna_command_ptr };
 
@@ -60,9 +60,6 @@ pub fn worker_set_result_dna_fitness(_: &Lua, (dna_command_handler, fitness_scor
             None => panic!("Queue is not initialized")
         }
     };
-
-    let writer_dna_result_queue_channel =
-        writer_dna_result_queue_channel.lock().unwrap().clone();
 
     writer_dna_result_queue_channel.send(1).unwrap();
 
