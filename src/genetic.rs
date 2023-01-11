@@ -33,8 +33,9 @@ pub fn start_genetic_solver(
     lua_context: &Lua,
     (max_generations_count,
         stop_generations_eps,
+        count_generations_mutate_eps,
         population_max_generation_size,
-        tree_nodes_count): (usize, usize, usize, usize),
+        tree_nodes_count): (usize, usize, usize, usize, usize),
 ) -> LuaResult<LuaTable>
 {
     if population_max_generation_size % 2 != 0
@@ -70,8 +71,12 @@ pub fn start_genetic_solver(
         }
     };
 
-    for _ in 0..1600 {
-        population.push(Box::new(Dna::new(tree_nodes_count)))
+    for index_node in 0..tree_nodes_count {
+        let mut dna = Box::new(Dna::new(tree_nodes_count));
+
+        dna.body[index_node] = 1;
+
+        population.push(dna);
     }
 
     let population_len = population.len();
@@ -152,6 +157,14 @@ pub fn start_genetic_solver(
         if count_generations_with_best == stop_generations_eps
         {
             break;
+        }
+
+        if count_generations_with_best % count_generations_mutate_eps == 0
+        {
+            for dna in &mut population
+            {
+                dna.mutate(&mut rng);
+            }
         }
     }
 
