@@ -40,7 +40,7 @@ impl Dna {
         let crossover_start: usize = rng.gen_range(0..self.body.len());
         let crossover_end: usize = rng.gen_range(0..self.body.len());
 
-        if crossover_start > crossover_end
+        if crossover_start < crossover_end
         {
             Dna::crossover_dna(dna2, &self, crossover_start..=crossover_end)
         }

@@ -1,3 +1,4 @@
+use std::{fs, thread, time};
 use std::sync::{mpsc, Mutex};
 use std::sync::mpsc::{Receiver, Sender};
 use mlua::prelude::*;
@@ -5,7 +6,7 @@ use mlua::prelude::*;
 use rand::prelude::ThreadRng;
 use rand::Rng;
 use crate::dna::Dna;
-use crate::globals_channels::{DnaCommand, READER_DNA_QUEUE_CHANNEL, READER_DNA_RESULT_QUEUE_CHANNEL, WRITER_DNA_QUEUE_CHANNEL, WRITER_DNA_RESULT_QUEUE_CHANNEL};
+use crate::globals_channels::{DNA_PROCESS, DnaCommand, READER_DNA_QUEUE_CHANNEL, READER_DNA_RESULT_QUEUE_CHANNEL, WRITER_DNA_QUEUE_CHANNEL, WRITER_DNA_RESULT_QUEUE_CHANNEL};
 
 
 pub fn init_genetic_solver(_: &Lua, (): ()) -> LuaResult<()> {
@@ -41,6 +42,12 @@ pub fn start_genetic_solver(
         panic!("population_max_generation_size should be 2");
     }
 
+    unsafe {
+        DNA_PROCESS.target_normal_nodes_count = 98;
+        DNA_PROCESS.target_ascendancy_nodes_count = 6;
+        DNA_PROCESS.number += 1;
+    }
+
     let mut alloc_dna_commands: Vec<DnaCommand> = vec![Default::default(); 10000];
 
     let mut population = Vec::with_capacity(10000);
@@ -63,7 +70,7 @@ pub fn start_genetic_solver(
         }
     };
 
-    for _ in 1..1600 {
+    for _ in 0..1600 {
         population.push(Box::new(Dna::new(tree_nodes_count)))
     }
 
@@ -148,7 +155,7 @@ pub fn start_genetic_solver(
         }
     }
 
-    Ok(create_table_from_dna(lua_context, &best_dna))
+    Ok(create_table_dna_data_from_dna(lua_context, &best_dna))
 }
 
 fn calc_fitness_with_worker(writer_dna_queue_channel: &Sender<*mut DnaCommand>,
@@ -159,14 +166,14 @@ fn calc_fitness_with_worker(writer_dna_queue_channel: &Sender<*mut DnaCommand>,
     for (i, dna) in dnas.iter_mut().enumerate() {
         let dna_command = &mut alloc_dna_commands[i];
 
-        dna_command.reinit = None;
-        dna_command.stop_thread = false;
         dna_command.dna = Some(&mut **dna);
 
-        writer_dna_queue_channel.send(&mut *dna_command).expect("Cannot send dna to queue");
+        writer_dna_queue_channel.send(&mut alloc_dna_commands[i]).expect("Cannot send dna to queue");
     }
 
-    for _ in 1..=dnas.len() {
+    thread::sleep(time::Duration::from_millis(1000));
+
+    for _ in 0..dnas.len() {
         reader_dna_result_queue_channel.recv().expect("Cannot receive dna result signal");
     }
 }
@@ -182,7 +189,7 @@ fn make_hard_fuck(dna_masters: &[Box<Dna>], dna_slaves: &[Box<Dna>], out_bastard
 }
 
 
-pub fn create_table_from_dna<'a>(lua_context: &'a Lua, dna: &Dna) -> LuaTable<'a>
+pub fn create_table_dna_data_from_dna<'a>(lua_context: &'a Lua, dna: &Dna) -> LuaTable<'a>
 {
     let new_table = lua_context.create_table().expect("Nu nihuya");
 
@@ -195,7 +202,7 @@ pub fn create_table_from_dna<'a>(lua_context: &'a Lua, dna: &Dna) -> LuaTable<'a
         }
     }
 
-    new_table.set("nodesDna", nodes_dna_table).unwrap();
+    new_table.set("treeNodesIndexes", nodes_dna_table).unwrap();
 
     new_table
 }

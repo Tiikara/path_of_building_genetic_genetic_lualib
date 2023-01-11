@@ -9,6 +9,6 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-mlua = { version = "0.8", features = ["luajit52", "module"] }
+mlua = { version = "0.8", features = ["luajit", "module"] }
 rand = "0.8.5"
-
+crossbeam = "0.8.1"
