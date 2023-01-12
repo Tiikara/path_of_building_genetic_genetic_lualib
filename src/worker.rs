@@ -8,7 +8,7 @@ pub struct LuaDnaCommand {
      ptr: *mut DnaCommand
 }
 
-impl UserData for LuaDnaCommand {}
+impl<'a> UserData for LuaDnaCommand {}
 
 pub fn worker_receive_next_command(
     lua_context: &Lua,

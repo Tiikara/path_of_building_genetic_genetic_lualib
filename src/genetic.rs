@@ -4,7 +4,8 @@ use mlua::prelude::*;
 
 use rand::prelude::ThreadRng;
 use rand::Rng;
-use crate::dna::Dna;
+use typed_arena::Arena;
+use crate::dna::{Dna, DnaData};
 use crate::globals_channels::{DNA_PROCESS, DnaCommand, READER_DNA_QUEUE_CHANNEL, READER_DNA_RESULT_QUEUE_CHANNEL, WRITER_DNA_QUEUE_CHANNEL, WRITER_DNA_RESULT_QUEUE_CHANNEL};
 
 
@@ -49,12 +50,15 @@ pub fn start_genetic_solver(
         DNA_PROCESS.number += 1;
     }
 
+    let mut dna_allocator = Vec::with_capacity(20000);
+    for _ in 0..20000
+    {
+        dna_allocator.push(Box::new(DnaData::new(tree_nodes_count)));
+    }
+
     let mut alloc_dna_commands: Vec<DnaCommand> = vec![Default::default(); 20000];
-
     let mut population = Vec::with_capacity(20000);
-
     let mut bastards = Vec::with_capacity(20000);
-
     let mut rng = rand::thread_rng();
 
     let writer_dna_queue_channel = unsafe {
@@ -72,7 +76,7 @@ pub fn start_genetic_solver(
     };
 
     for index_node in 0..tree_nodes_count {
-        let mut dna = Box::new(Dna::new(tree_nodes_count));
+        let mut dna = Dna::new(&mut dna_allocator);
 
         dna.body[index_node] = 1;
 
@@ -90,15 +94,15 @@ pub fn start_genetic_solver(
 
     population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
 
-    let mut best_dna = population[0].clone();
+    let mut best_dna = population[0].clone(&mut dna_allocator);
 
-    let mut count_generations_with_best = 0;
+    let mut count_generations_with_best = 1;
 
     for _ in 1..=max_generations_count {
         let start_mutated_index = population.len();
 
         for i in 0..population.len() {
-            let mut mutated_dna = population[i].clone();
+            let mut mutated_dna = population[i].clone(&mut dna_allocator);
 
             mutated_dna.mutate(&mut rng);
 
@@ -124,6 +128,7 @@ pub fn start_genetic_solver(
             };
 
         make_hard_fuck(
+            &mut dna_allocator,
             &population[0..count_of_fucks],
             &population[0..population.len()],
             &mut bastards,
@@ -138,7 +143,11 @@ pub fn start_genetic_solver(
             &mut bastards[..bastards_len],
         );
 
-        population.truncate(population_max_generation_size / 2);
+        for _ in population_max_generation_size / 2..population.len()
+        {
+            let dna_to_remove = population.pop().unwrap();
+            dna_allocator.push(dna_to_remove.reference);
+        }
 
         while let Some(bastard) = bastards.pop() {
             population.push(bastard);
@@ -148,8 +157,8 @@ pub fn start_genetic_solver(
 
         if population[0].fitness_score > best_dna.fitness_score
         {
-            best_dna = population[0].clone();
-            count_generations_with_best = 0;
+            best_dna = population[0].clone(&mut dna_allocator);
+            count_generations_with_best = 1;
         } else {
             count_generations_with_best += 1;
         }
@@ -161,9 +170,14 @@ pub fn start_genetic_solver(
 
         if count_generations_with_best % count_generations_mutate_eps == 0
         {
+            let eps_steps = count_generations_with_best / count_generations_mutate_eps;
+            let mutation_count = 1 + (eps_steps - 1) * 5;
             for dna in &mut population
             {
-                dna.mutate(&mut rng);
+                for _ in 0..mutation_count
+                {
+                    dna.mutate(&mut rng);
+                }
             }
         }
     }
@@ -174,12 +188,12 @@ pub fn start_genetic_solver(
 fn calc_fitness_with_worker(writer_dna_queue_channel: &Sender<*mut DnaCommand>,
                             reader_dna_result_queue_channel: &Receiver<i8>,
                             alloc_dna_commands: &mut Vec<DnaCommand>,
-                            dnas: &mut [Box<Dna>])
+                            dnas: &mut [Dna])
 {
     for (i, dna) in dnas.iter_mut().enumerate() {
         let dna_command = &mut alloc_dna_commands[i];
 
-        dna_command.dna = Some(&mut **dna);
+        dna_command.dna = Some(&mut *dna);
 
         writer_dna_queue_channel.send(&mut alloc_dna_commands[i]).expect("Cannot send dna to queue");
     }
@@ -189,13 +203,13 @@ fn calc_fitness_with_worker(writer_dna_queue_channel: &Sender<*mut DnaCommand>,
     }
 }
 
-fn make_hard_fuck(dna_masters: &[Box<Dna>], dna_slaves: &[Box<Dna>], out_bastards: &mut Vec<Box<Dna>>, rng: &mut ThreadRng)
+fn make_hard_fuck(dna_data_allocator: &mut Vec<Box<DnaData>>, dna_masters: &[Dna], dna_slaves: &[Dna], out_bastards: &mut Vec<Dna>, rng: &mut ThreadRng)
 {
     for dna_master in dna_masters {
         let index_of_slave = rng.gen_range(0..dna_slaves.len());
         let dna_slave = &dna_slaves[index_of_slave];
 
-        out_bastards.push(Box::new(dna_master.selection(dna_slave, rng)));
+        out_bastards.push(dna_master.selection(dna_data_allocator, dna_slave, rng));
     }
 }
 
