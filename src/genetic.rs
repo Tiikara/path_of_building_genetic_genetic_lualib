@@ -36,7 +36,8 @@ pub fn start_genetic_solver(
         stop_generations_eps,
         count_generations_mutate_eps,
         population_max_generation_size,
-        tree_nodes_count): (usize, usize, usize, usize, usize),
+        tree_nodes_count,
+        mysteries_nodes_count): (usize, usize, usize, usize, usize, usize),
 ) -> LuaResult<LuaTable>
 {
     if population_max_generation_size % 2 != 0
@@ -53,7 +54,7 @@ pub fn start_genetic_solver(
     let mut dna_allocator = Vec::with_capacity(20000);
     for _ in 0..20000
     {
-        dna_allocator.push(Box::new(DnaData::new(tree_nodes_count)));
+        dna_allocator.push(Box::new(DnaData::new(tree_nodes_count, mysteries_nodes_count)));
     }
 
     let mut alloc_dna_commands: Vec<DnaCommand> = vec![Default::default(); 20000];
@@ -78,7 +79,7 @@ pub fn start_genetic_solver(
     for index_node in 0..tree_nodes_count {
         let mut dna = Dna::new(&mut dna_allocator);
 
-        dna.body[index_node] = 1;
+        dna.body_nodes[index_node] = 1;
 
         population.push(dna);
     }
@@ -209,7 +210,7 @@ fn make_hard_fuck(dna_data_allocator: &mut Vec<Box<DnaData>>, dna_masters: &[Dna
         let index_of_slave = rng.gen_range(0..dna_slaves.len());
         let dna_slave = &dna_slaves[index_of_slave];
 
-        out_bastards.push(dna_master.selection(dna_data_allocator, dna_slave, rng));
+        out_bastards.push(dna_master.combine(dna_data_allocator, dna_slave, rng));
     }
 }
 
@@ -218,16 +219,22 @@ pub fn create_table_dna_data_from_dna<'a>(lua_context: &'a Lua, dna: &Dna) -> Lu
 {
     let new_table = lua_context.create_table().expect("Nu nihuya");
 
-
     let nodes_dna_table = lua_context.create_table().expect("Nu nihuya");
-    for (index, nucl) in dna.body.iter().enumerate() {
+    for (index, nucl) in dna.body_nodes.iter().enumerate() {
         if *nucl == 1
         {
             nodes_dna_table.set(index + 1, 1).expect("Nu kak to tak");
         }
     }
 
-    new_table.set("treeNodesIndexes", nodes_dna_table).unwrap();
+    let mysteries_dna_table = lua_context.create_table().expect("Nu nihuya");
+
+    for (index, nucl) in dna.body_mysteries.iter().enumerate() {
+        mysteries_dna_table.set(index + 1, (*nucl as f64) / 255.0).expect("Nu kak to tak");
+    }
+
+    new_table.set("treeNodesNumbers", nodes_dna_table).unwrap();
+    new_table.set("mysteriesIndexes", mysteries_dna_table).unwrap();
 
     new_table
 }
