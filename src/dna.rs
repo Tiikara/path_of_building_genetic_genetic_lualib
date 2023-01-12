@@ -28,7 +28,7 @@ impl DnaData {
     pub(crate) fn new(tree_nodes_count: usize, mastery_count: usize) -> DnaData {
         DnaData {
             body_nodes: vec![0; tree_nodes_count],
-            body_mysteries: vec![0; mastery_count],
+            body_mysteries: vec![0; mastery_count * 6],
             fitness_score: -1.0
         }
     }
@@ -82,13 +82,20 @@ impl Dna {
         }
 
         // Mutate mysteries
-        let mutate_cluster_size = rng.gen_range(1..=MAX_MUTATE_CLUSTER_SIZE);
+        let mutate_cluster_size = 1;
         let start_num = rng.gen_range(0..self.body_mysteries.len() - mutate_cluster_size);
 
         let body_slice = &mut self.body_mysteries[start_num..start_num+mutate_cluster_size];
 
         for nucl in body_slice.iter_mut() {
-            *nucl = rng.gen_range(0..=255)
+            if *nucl == 1
+            {
+                *nucl = 0;
+            }
+            else
+            {
+                *nucl = 1;
+            }
         }
     }
 

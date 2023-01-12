@@ -1,4 +1,5 @@
 use std::{fs, thread, time};
+use std::collections::HashMap;
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use mlua::prelude::*;
 
@@ -227,14 +228,30 @@ pub fn create_table_dna_data_from_dna<'a>(lua_context: &'a Lua, dna: &Dna) -> Lu
         }
     }
 
-    let mysteries_dna_table = lua_context.create_table().expect("Nu nihuya");
-
+    let mut effects_map = HashMap::new();
     for (index, nucl) in dna.body_mysteries.iter().enumerate() {
-        mysteries_dna_table.set(index + 1, (*nucl as f64) / 255.0).expect("Nu kak to tak");
+        let index_node = index / 6;
+
+        if *nucl == 1
+        {
+            let effects_table =
+                effects_map
+                .entry(index_node)
+                .or_insert_with(|| Box::new(lua_context.create_table().expect("Nu nihuya")));
+
+            let index_effect = index % 6;
+
+            effects_table.set(index_effect + 1, 1).unwrap();
+        }
+    }
+
+    let mysteries_dna_table = lua_context.create_table().expect("Nu nihuya");
+    for (index_node, effects_table) in effects_map.into_iter() {
+        mysteries_dna_table.set(index_node + 1, *effects_table).unwrap();
     }
 
     new_table.set("treeNodesNumbers", nodes_dna_table).unwrap();
-    new_table.set("mysteriesIndexes", mysteries_dna_table).unwrap();
+    new_table.set("mysteriesNodesEffectsInfo", mysteries_dna_table).unwrap();
 
     new_table
 }
