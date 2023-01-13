@@ -5,321 +5,332 @@ use std::thread::sleep;
 use std::time::Duration;
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use mlua::prelude::*;
+use mlua::{UserData, UserDataMethods};
 
 use rand::prelude::ThreadRng;
 use rand::Rng;
 use typed_arena::Arena;
 use crate::dna::{Dna, DnaData};
-use crate::globals_data::{DNA_PROCESS, DNA_PROCESS_STATUS, DnaCommand, READER_DNA_QUEUE_CHANNEL, READER_DNA_RESULT_QUEUE_CHANNEL, WRITER_DNA_QUEUE_CHANNEL, WRITER_DNA_RESULT_QUEUE_CHANNEL};
+use crate::worker::worker_main;
 
-pub struct DnaProcess {
+pub struct DnaCommand {
+    pub dna: Option<Dna>
+}
+
+pub struct Session {
     pub number: usize,
     pub target_normal_nodes_count: usize,
     pub target_ascendancy_nodes_count: usize
 }
 
-pub struct DnaProcessStatus {
-    pub best_dna: Option<Box<Dna>>,
+pub struct ProcessStatus {
+    pub best_dna: Option<Dna>,
     pub best_dna_number: usize,
     pub is_progress: bool
 }
 
-struct LuaGeneticSolver
+pub struct LuaGeneticSolver
 {
-    pub static mut WRITER_DNA_QUEUE_CHANNEL: Option<Sender<*mut DnaCommand>> = None,
-    pub static mut READER_DNA_QUEUE_CHANNEL: Option<Receiver<*mut DnaCommand>> = None,
+    pub writer_dna_queue_channel: Sender<Box<DnaCommand>>,
+    pub reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
 
-    pub static mut WRITER_DNA_RESULT_QUEUE_CHANNEL: Option<Sender<i8>> = None,
-    pub static mut READER_DNA_RESULT_QUEUE_CHANNEL: Option<Receiver<i8>> = None,
-    workers_data: Arc<RwLock<DnaProcess>>,
-    process_status: Arc<RwLock<DnaProcessStatus>>
+    pub writer_dna_result_queue_channel: Sender<Box<DnaCommand>>,
+    pub reader_dna_result_queue_channel: Receiver<Box<DnaCommand>>,
+
+    pub session_parameters: Arc<RwLock<Session>>,
+    pub process_status: Arc<RwLock<ProcessStatus>>
 }
 
+impl UserData for LuaGeneticSolver {
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_method("IsProgress", |_, this, ()| {
+            Ok(this.process_status.read().unwrap().is_progress)
+        });
 
-pub fn init_genetic_solver(_: &Lua, (): ()) -> LuaResult<()> {
+        methods.add_method("GetBestDnaNumber", |_, this, ()| {
+            Ok(this.process_status.read().unwrap().best_dna_number)
+        });
+
+        methods.add_method("GetBestDna", |lua_context, this, ()| {
+            Ok(
+                create_table_dna_data_from_dna(
+                    lua_context,
+                    &this.process_status.read().unwrap().best_dna.as_ref().unwrap()
+                )
+            )
+        });
+
+        methods.add_method("CreateWorkers", |lua_context, this, workers_count: usize| {
+
+            for _ in 0..workers_count
+            {
+                let reader_dna_queue_channel = this.reader_dna_queue_channel.clone();
+                let writer_dna_result_queue_channel = this.writer_dna_result_queue_channel.clone();
+                let workers_data = this.session_parameters.clone();
+                thread::spawn(move || {
+                    worker_main(reader_dna_queue_channel, writer_dna_result_queue_channel, workers_data);
+                });
+            }
+
+            Ok(())
+        });
+
+        methods.add_method("StartSolve", |lua_context, this, (
+            max_generations_count,
+            stop_generations_eps,
+            count_generations_mutate_eps,
+            population_max_generation_size,
+            tree_nodes_count,
+            mysteries_nodes_count,
+            target_normal_nodes_count,
+            target_ascendancy_nodes_count): (usize, usize, usize, usize, usize, usize, usize, usize)| {
+
+            if population_max_generation_size % 2 != 0
+            {
+                panic!("population_max_generation_size should be 2");
+            }
+
+            let mut process_status = this.process_status.write().unwrap();
+
+            if process_status.is_progress
+            {
+                panic!("Genetic solve already in progress");
+            }
+
+            process_status.is_progress = true;
+
+            process_status.best_dna = None;
+            process_status.best_dna_number = 0;
+
+            let mut session_parameters = this.session_parameters.write().unwrap();
+
+            session_parameters.target_normal_nodes_count = target_normal_nodes_count;
+            session_parameters.target_ascendancy_nodes_count = target_ascendancy_nodes_count;
+            session_parameters.number += 1;
+
+            let writer_dna_queue_channel = this.writer_dna_queue_channel.clone();
+            let reader_dna_result_queue_channel = this.reader_dna_result_queue_channel.clone();
+            let process_status = this.process_status.clone();
+            thread::spawn(move || {
+                genetic_solve(writer_dna_queue_channel,
+                              reader_dna_result_queue_channel,
+                              process_status,
+                              max_generations_count,
+                              stop_generations_eps,
+                              count_generations_mutate_eps,
+                              population_max_generation_size,
+                              tree_nodes_count,
+                              mysteries_nodes_count)
+            });
+
+            sleep(Duration::from_secs(10));
+
+            Ok(())
+        });
+    }
+}
+
+pub fn create_genetic_solver(_: &Lua, (): ()) -> LuaResult<LuaGeneticSolver> {
     let (writer_dna_queue_channel, reader_dna_queue_channel) =
         unbounded();
-
-    unsafe {
-        WRITER_DNA_QUEUE_CHANNEL = Some(writer_dna_queue_channel);
-        READER_DNA_QUEUE_CHANNEL = Some(reader_dna_queue_channel);
-    }
 
     let (writer_dna_result_queue_channel, reader_dna_result_queue_channel) =
         unbounded();
 
-    unsafe {
-        WRITER_DNA_RESULT_QUEUE_CHANNEL = Some(writer_dna_result_queue_channel);
-        READER_DNA_RESULT_QUEUE_CHANNEL = Some(reader_dna_result_queue_channel);
-    }
-
-    unsafe {
-        DNA_PROCESS_STATUS = Some(Mutex::new(DnaProcessStatus{
+    Ok(LuaGeneticSolver {
+        writer_dna_queue_channel,
+        reader_dna_queue_channel,
+        writer_dna_result_queue_channel,
+        reader_dna_result_queue_channel,
+        session_parameters: Arc::new(RwLock::new(Session {
+            number: 0,
+            target_ascendancy_nodes_count: 0,
+            target_normal_nodes_count: 0
+        })),
+        process_status: Arc::new(RwLock::new(ProcessStatus {
             best_dna: None,
             best_dna_number: 0,
             is_progress: false
         }))
-    }
-
-    Ok(())
+    })
 }
 
-
-pub fn start_genetic_solver(
-    _: &Lua,
-    (max_generations_count,
-        stop_generations_eps,
-        count_generations_mutate_eps,
-        population_max_generation_size,
-        tree_nodes_count,
-        mysteries_nodes_count): (usize, usize, usize, usize, usize, usize),
-) -> LuaResult<()>
+pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
+                     reader_dna_result_queue_channel: Receiver<Box<DnaCommand>>,
+                     process_status: Arc<RwLock<ProcessStatus>>,
+                     max_generations_count: usize,
+                     stop_generations_eps: usize,
+                     count_generations_mutate_eps: usize,
+                     population_max_generation_size: usize,
+                     tree_nodes_count: usize,
+                     mysteries_nodes_count: usize)
 {
-    if population_max_generation_size % 2 != 0
+    let mut dna_allocator = Vec::with_capacity(200000);
+    for _ in 0..dna_allocator.capacity()
     {
-        panic!("population_max_generation_size should be 2");
+        dna_allocator.push(Box::new(DnaData::new(tree_nodes_count, mysteries_nodes_count)));
     }
 
-    let dna_process_status = unsafe {
-        match &DNA_PROCESS_STATUS {
-            Some(dna_process_status) => dna_process_status,
-            None => panic!("Dolbaeb")
-        }
-    };
-
-    if dna_process_status.lock().unwrap().is_progress
+    let mut dna_command_allocator = Vec::with_capacity(200000);
+    for _ in 0..dna_command_allocator.capacity()
     {
-        panic!("Genetic solve already in progress");
+        dna_command_allocator.push(Box::new(DnaCommand {
+            dna: None
+        }));
     }
 
-    let mut dna_process_status = dna_process_status.lock().unwrap();
-    if dna_process_status.is_progress
-    {
-        panic!("Genetic solve already in progress");
+    let mut population = Vec::with_capacity(200000);
+    let mut bastards = Vec::with_capacity(200000);
+    let mut rng = rand::thread_rng();
+
+    for index_node in 0..tree_nodes_count {
+        let mut dna = Dna::new(&mut dna_allocator);
+
+        dna.body_nodes[index_node] = 1;
+
+        population.push(dna);
     }
 
-    dna_process_status.is_progress = true;
+    let population_len = population.len();
+    calc_fitness_with_worker(
+        &writer_dna_queue_channel,
+        &reader_dna_result_queue_channel,
+        &mut dna_command_allocator,
+        &mut population,
+        population_len,
+    );
 
-    dna_process_status.best_dna = None;
-    dna_process_status.best_dna_number = 0;
+    population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
 
-    thread::spawn(move || {
+    let mut best_dna = population[0].clone(&mut dna_allocator);
 
-        unsafe {
-            DNA_PROCESS.target_normal_nodes_count = 98;
-            DNA_PROCESS.target_ascendancy_nodes_count = 6;
-            DNA_PROCESS.number += 1;
-        }
+    let mut count_generations_with_best = 1;
 
-        let dna_process_status = unsafe {
-            match &DNA_PROCESS_STATUS {
-                Some(dna_process_status) => dna_process_status,
-                None => panic!("Dolbaeb")
-            }
-        };
+    for _ in 1..=max_generations_count {
+        let start_mutated_index = population.len();
 
-        let mut dna_allocator = Vec::with_capacity(200000);
-        for _ in 0..dna_allocator.capacity()
-        {
-            dna_allocator.push(Box::new(DnaData::new(tree_nodes_count, mysteries_nodes_count)));
-        }
+        for i in 0..population.len() {
+            let mut mutated_dna = population[i].clone(&mut dna_allocator);
 
-        let mut alloc_dna_commands: Vec<DnaCommand> = vec![Default::default(); 200000];
-        let mut population = Vec::with_capacity(200000);
-        let mut bastards = Vec::with_capacity(200000);
-        let mut rng = rand::thread_rng();
+            mutated_dna.mutate(&mut rng);
 
-        let writer_dna_queue_channel = unsafe {
-            match &WRITER_DNA_QUEUE_CHANNEL {
-                Some(writer_dna_queue_channel) => writer_dna_queue_channel,
-                None => panic!("Dolbaeb")
-            }
-        };
-
-        let reader_dna_result_queue_channel = unsafe {
-            match &READER_DNA_RESULT_QUEUE_CHANNEL {
-                Some(reader_dna_result_queue_channel) => reader_dna_result_queue_channel,
-                None => panic!("Dolbaeb")
-            }
-        };
-
-        for index_node in 0..tree_nodes_count {
-            let mut dna = Dna::new(&mut dna_allocator);
-
-            dna.body_nodes[index_node] = 1;
-
-            population.push(dna);
+            population.push(mutated_dna);
         }
 
         let population_len = population.len();
 
         calc_fitness_with_worker(
-            writer_dna_queue_channel,
-            reader_dna_result_queue_channel,
-            &mut alloc_dna_commands,
-            &mut population[0..population_len],
+            &writer_dna_queue_channel,
+            &reader_dna_result_queue_channel,
+            &mut dna_command_allocator,
+            &mut population,
+            population_len - start_mutated_index,
         );
 
         population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
 
-        let mut best_dna = population[0].clone(&mut dna_allocator);
-
-        let mut count_generations_with_best = 1;
-
-        for _ in 1..=max_generations_count {
-            let start_mutated_index = population.len();
-
-            for i in 0..population.len() {
-                let mut mutated_dna = population[i].clone(&mut dna_allocator);
-
-                mutated_dna.mutate(&mut rng);
-
-                population.push(mutated_dna);
-            }
-
-            let population_len = population.len();
-
-            calc_fitness_with_worker(
-                writer_dna_queue_channel,
-                reader_dna_result_queue_channel,
-                &mut alloc_dna_commands,
-                &mut population[start_mutated_index..population_len],
-            );
-
-            population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
-
-            let count_of_fucks =
-                if population_max_generation_size / 2 > population.len() {
-                    population.len()
-                } else {
-                    population_max_generation_size / 2
-                };
-
-            make_hard_fuck(
-                &mut dna_allocator,
-                &population[0..count_of_fucks],
-                &population[0..population.len()],
-                &mut bastards,
-                &mut rng,
-            );
-
-            let bastards_len = bastards.len();
-            calc_fitness_with_worker(
-                writer_dna_queue_channel,
-                reader_dna_result_queue_channel,
-                &mut alloc_dna_commands,
-                &mut bastards[..bastards_len],
-            );
-
-            for _ in population_max_generation_size / 2..population.len()
-            {
-                let dna_to_remove = population.pop().unwrap();
-                dna_allocator.push(dna_to_remove.reference);
-            }
-
-            while let Some(bastard) = bastards.pop() {
-                population.push(bastard);
-            }
-
-            population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
-
-            if population[0].fitness_score > best_dna.fitness_score
-            {
-                best_dna = population[0].clone(&mut dna_allocator);
-                {
-                    let mut dna_process_status = dna_process_status.lock().unwrap();
-
-                    dna_process_status.best_dna = Some(Box::new(
-                        Dna {
-                            reference: best_dna.reference.clone()
-                        }
-                    ));
-                    dna_process_status.best_dna_number += 1;
-                }
-                count_generations_with_best = 1;
+        let count_of_fucks =
+            if population_max_generation_size / 2 > population.len() {
+                population.len()
             } else {
-                count_generations_with_best += 1;
-            }
+                population_max_generation_size / 2
+            };
 
-            if count_generations_with_best == stop_generations_eps
-            {
-                break;
-            }
+        make_hard_fuck(
+            &mut dna_allocator,
+            &population[0..count_of_fucks],
+            &population[0..population.len()],
+            &mut bastards,
+            &mut rng,
+        );
 
-            if count_generations_with_best % count_generations_mutate_eps == 0
+        let bastards_len = bastards.len();
+        calc_fitness_with_worker(
+            &writer_dna_queue_channel,
+            &reader_dna_result_queue_channel,
+            &mut dna_command_allocator,
+            &mut bastards,
+            bastards_len,
+        );
+
+        for _ in population_max_generation_size / 2..population.len()
+        {
+            let dna_to_remove = population.pop().unwrap();
+            dna_allocator.push(dna_to_remove.reference);
+        }
+
+        while let Some(bastard) = bastards.pop() {
+            population.push(bastard);
+        }
+
+        population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
+
+        if population[0].fitness_score > best_dna.fitness_score
+        {
+            best_dna = population[0].clone(&mut dna_allocator);
             {
-                let eps_steps = count_generations_with_best / count_generations_mutate_eps;
-                let population_len = population.len();
-                for dna in &mut population[1..population_len]
-                {
-                    for _ in 0..eps_steps
-                    {
-                        dna.mutate(&mut rng);
+                let mut process_status = process_status.write().unwrap();
+
+                process_status.best_dna = Some(
+                    Dna {
+                        reference: best_dna.reference.clone()
                     }
+                );
+                process_status.best_dna_number += 1;
+            }
+            count_generations_with_best = 1;
+        } else {
+            count_generations_with_best += 1;
+        }
+
+        if count_generations_with_best == stop_generations_eps
+        {
+            break;
+        }
+
+        if count_generations_with_best % count_generations_mutate_eps == 0
+        {
+            let eps_steps = count_generations_with_best / count_generations_mutate_eps;
+            let population_len = population.len();
+            for dna in &mut population[1..population_len]
+            {
+                for _ in 0..eps_steps
+                {
+                    dna.mutate(&mut rng);
                 }
             }
         }
+    }
 
-        {
-            dna_process_status.lock().unwrap().is_progress = false;
-        }
-    });
-
-    sleep(Duration::from_secs(50));
-
-    Ok(())
-}
-
-pub fn genetic_solver_get_best_dna(lua_context: &Lua, (): ()) -> LuaResult<LuaTable>
-{
-    let dna_process_status = unsafe {
-        match &DNA_PROCESS_STATUS {
-            Some(dna_process_status) => dna_process_status.lock().unwrap(),
-            None => panic!("Dolbaeb")
-        }
-    };
-
-    match &dna_process_status.best_dna {
-        None => { panic!("Best dna is not exists") }
-        Some(best_dna) => { Ok(create_table_dna_data_from_dna(lua_context, &*best_dna)) }
+    {
+        process_status.write().unwrap().is_progress = false;
     }
 }
 
-pub fn genetic_solver_is_progress(_: &Lua, (): ()) -> LuaResult<bool>
+fn calc_fitness_with_worker(writer_dna_queue_channel: &Sender<Box<DnaCommand>>,
+                            reader_dna_result_queue_channel: &Receiver<Box<DnaCommand>>,
+                            dna_commands_allocator: &mut Vec<Box<DnaCommand>>,
+                            dnas: &mut Vec<Dna>,
+                            calc_count_from_end: usize
+)
 {
-    unsafe {
-        match &DNA_PROCESS_STATUS {
-            Some(dna_process_status) => Ok(dna_process_status.lock().unwrap().is_progress),
-            None => panic!("Dolbaeb")
-        }
-    }
-}
+    for _ in 0..calc_count_from_end
+    {
+        let dna = dnas.pop().unwrap();
+        let mut dna_command = dna_commands_allocator.pop().unwrap();
 
-pub fn genetic_solver_get_best_dna_number(_: &Lua, (): ()) -> LuaResult<usize>
-{
-    unsafe {
-        match &DNA_PROCESS_STATUS {
-            Some(dna_process_status) => Ok(dna_process_status.lock().unwrap().best_dna_number),
-            None => panic!("Dolbaeb")
-        }
-    }
-}
+        dna_command.dna = Some(dna);
 
-fn calc_fitness_with_worker(writer_dna_queue_channel: &Sender<*mut DnaCommand>,
-                            reader_dna_result_queue_channel: &Receiver<i8>,
-                            alloc_dna_commands: &mut Vec<DnaCommand>,
-                            dnas: &mut [Dna])
-{
-    for (i, dna) in dnas.iter_mut().enumerate() {
-        let dna_command = &mut alloc_dna_commands[i];
-
-        dna_command.dna = Some(&mut *dna);
-
-        writer_dna_queue_channel.send(&mut alloc_dna_commands[i]).expect("Cannot send dna to queue");
+        writer_dna_queue_channel.send(dna_command).unwrap();
     }
 
-    for _ in 0..dnas.len() {
-        reader_dna_result_queue_channel.recv().expect("Cannot receive dna result signal");
+    for _ in 0..calc_count_from_end {
+        let mut dna_command = reader_dna_result_queue_channel.recv().expect("Cannot receive dna result signal");
+
+        let dna = dna_command.dna.take().unwrap();
+
+        dnas.push(dna);
+        dna_commands_allocator.push(dna_command);
     }
 }
 
@@ -334,7 +345,7 @@ fn make_hard_fuck(dna_data_allocator: &mut Vec<Box<DnaData>>, dna_masters: &[Dna
 }
 
 
-pub fn create_table_dna_data_from_dna<'a>(lua_context: &'a Lua, dna: &Dna) -> LuaTable<'a>
+pub fn create_table_dna_data_from_dna<'a, 'b>(lua_context: &'a Lua, dna: &'b Dna) -> LuaTable<'a>
 {
     let new_table = lua_context.create_table().expect("Nu nihuya");
 
