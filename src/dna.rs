@@ -18,6 +18,7 @@ impl<'a> DerefMut for Dna {
     fn deref_mut(&mut self) -> &mut DnaData { &mut self.reference }
 }
 
+#[derive(Clone)]
 pub struct DnaData {
     pub body_nodes: Vec<u8>,
     pub body_mysteries: Vec<u8>,

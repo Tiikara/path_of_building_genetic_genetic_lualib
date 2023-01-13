@@ -1,7 +1,7 @@
 use mlua::{Lua, UserData};
 use mlua::prelude::{LuaResult, LuaTable};
 use crate::genetic::create_table_dna_data_from_dna;
-use crate::globals_channels::{DNA_PROCESS, DnaCommand, READER_DNA_QUEUE_CHANNEL, WRITER_DNA_RESULT_QUEUE_CHANNEL};
+use crate::globals_data::{DNA_PROCESS, DnaCommand, READER_DNA_QUEUE_CHANNEL, WRITER_DNA_RESULT_QUEUE_CHANNEL};
 
 #[derive(Clone)]
 pub struct LuaDnaCommand {
