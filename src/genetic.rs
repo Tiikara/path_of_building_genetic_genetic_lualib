@@ -1,15 +1,15 @@
-use std::{fs, thread, time};
+use std::{env, thread, time};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread::sleep;
-use std::time::Duration;
+use std::sync::{Arc, RwLock};
+use std::thread::{JoinHandle};
+
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use mlua::prelude::*;
 use mlua::{UserData, UserDataMethods};
 
 use rand::prelude::ThreadRng;
 use rand::Rng;
-use typed_arena::Arena;
+
 use crate::dna::{Dna, DnaData};
 use crate::worker::worker_main;
 
@@ -37,8 +37,12 @@ pub struct LuaGeneticSolver
     pub writer_dna_result_queue_channel: Sender<Box<DnaCommand>>,
     pub reader_dna_result_queue_channel: Receiver<Box<DnaCommand>>,
 
-    pub session_parameters: Arc<RwLock<Session>>,
-    pub process_status: Arc<RwLock<ProcessStatus>>
+    pub session: Arc<RwLock<Session>>,
+    pub process_status: Arc<RwLock<ProcessStatus>>,
+
+    pub workers_was_created: bool,
+
+    pub main_thread: Option<JoinHandle<()>>
 }
 
 impl UserData for LuaGeneticSolver {
@@ -51,7 +55,7 @@ impl UserData for LuaGeneticSolver {
             Ok(this.process_status.read().unwrap().best_dna_number)
         });
 
-        methods.add_method("GetBestDna", |lua_context, this, ()| {
+        methods.add_method("GetBestDnaData", |lua_context, this, ()| {
             Ok(
                 create_table_dna_data_from_dna(
                     lua_context,
@@ -60,22 +64,40 @@ impl UserData for LuaGeneticSolver {
             )
         });
 
-        methods.add_method("CreateWorkers", |lua_context, this, workers_count: usize| {
+        methods.add_method_mut("CreateWorkers", |_lua_context, this, workers_count: usize| {
+            if this.workers_was_created
+            {
+                panic!("Workers already created")
+            }
 
             for _ in 0..workers_count
             {
                 let reader_dna_queue_channel = this.reader_dna_queue_channel.clone();
                 let writer_dna_result_queue_channel = this.writer_dna_result_queue_channel.clone();
-                let workers_data = this.session_parameters.clone();
+                let workers_data = this.session.clone();
+
+                let working_dir = String::from(env::current_dir().unwrap().to_str().unwrap()) + "/";
+
                 thread::spawn(move || {
-                    worker_main(reader_dna_queue_channel, writer_dna_result_queue_channel, workers_data);
+                    worker_main(reader_dna_queue_channel,
+                                writer_dna_result_queue_channel,
+                                workers_data,
+                                &working_dir);
                 });
             }
+
+            this.workers_was_created = true;
 
             Ok(())
         });
 
-        methods.add_method("StartSolve", |lua_context, this, (
+        methods.add_method_mut("WaitSolve", |_lua_context, this, (): ()| {
+            this.main_thread.take().expect("Solve process is not started").join().unwrap();
+
+            Ok(())
+        });
+
+        methods.add_method_mut("StartSolve", |_lua_context, this, (
             max_generations_count,
             stop_generations_eps,
             count_generations_mutate_eps,
@@ -83,35 +105,37 @@ impl UserData for LuaGeneticSolver {
             tree_nodes_count,
             mysteries_nodes_count,
             target_normal_nodes_count,
-            target_ascendancy_nodes_count): (usize, usize, usize, usize, usize, usize, usize, usize)| {
+            target_ascendancy_nodes_count, is_wait): (usize, usize, usize, usize, usize, usize, usize, usize, bool)| {
 
             if population_max_generation_size % 2 != 0
             {
                 panic!("population_max_generation_size should be 2");
             }
 
-            let mut process_status = this.process_status.write().unwrap();
-
-            if process_status.is_progress
             {
-                panic!("Genetic solve already in progress");
+                let mut process_status = this.process_status.write().unwrap();
+
+                if process_status.is_progress
+                {
+                    panic!("Genetic solve already in progress");
+                }
+
+                process_status.is_progress = true;
+
+                process_status.best_dna = None;
+                process_status.best_dna_number = 0;
+
+                let mut session_parameters = this.session.write().unwrap();
+
+                session_parameters.target_normal_nodes_count = target_normal_nodes_count;
+                session_parameters.target_ascendancy_nodes_count = target_ascendancy_nodes_count;
+                session_parameters.number += 1;
             }
-
-            process_status.is_progress = true;
-
-            process_status.best_dna = None;
-            process_status.best_dna_number = 0;
-
-            let mut session_parameters = this.session_parameters.write().unwrap();
-
-            session_parameters.target_normal_nodes_count = target_normal_nodes_count;
-            session_parameters.target_ascendancy_nodes_count = target_ascendancy_nodes_count;
-            session_parameters.number += 1;
 
             let writer_dna_queue_channel = this.writer_dna_queue_channel.clone();
             let reader_dna_result_queue_channel = this.reader_dna_result_queue_channel.clone();
             let process_status = this.process_status.clone();
-            thread::spawn(move || {
+            let thread = thread::spawn(move || {
                 genetic_solve(writer_dna_queue_channel,
                               reader_dna_result_queue_channel,
                               process_status,
@@ -123,7 +147,7 @@ impl UserData for LuaGeneticSolver {
                               mysteries_nodes_count)
             });
 
-            sleep(Duration::from_secs(10));
+            this.main_thread = Some(thread);
 
             Ok(())
         });
@@ -142,7 +166,7 @@ pub fn create_genetic_solver(_: &Lua, (): ()) -> LuaResult<LuaGeneticSolver> {
         reader_dna_queue_channel,
         writer_dna_result_queue_channel,
         reader_dna_result_queue_channel,
-        session_parameters: Arc::new(RwLock::new(Session {
+        session: Arc::new(RwLock::new(Session {
             number: 0,
             target_ascendancy_nodes_count: 0,
             target_normal_nodes_count: 0
@@ -151,7 +175,9 @@ pub fn create_genetic_solver(_: &Lua, (): ()) -> LuaResult<LuaGeneticSolver> {
             best_dna: None,
             best_dna_number: 0,
             is_progress: false
-        }))
+        })),
+        main_thread: None,
+        workers_was_created: false
     })
 }
 
