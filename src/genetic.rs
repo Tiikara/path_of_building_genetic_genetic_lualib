@@ -228,9 +228,10 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
 
     population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
 
-    let mut best_dna = population[0].clone(&mut dna_allocator);
+    let mut population_best_dna = population[0].clone(&mut dna_allocator);
 
     let mut count_generations_with_best = 1;
+    let mut count_generations_with_best_population = 1;
 
     for _ in 1..=max_generations_count {
         let start_mutated_index = population.len();
@@ -291,21 +292,40 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
 
         population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
 
-        if population[0].fitness_score > best_dna.fitness_score
+        if population[0].fitness_score > population_best_dna.fitness_score
         {
-            best_dna = population[0].clone(&mut dna_allocator);
+            population_best_dna = population[0].clone(&mut dna_allocator);
+
+            count_generations_with_best_population = 1;
+        } else {
+            count_generations_with_best_population += 1;
+        }
+
+        let global_best_dna_fitness_score =
+            {
+                match &process_status.read().unwrap().best_dna {
+                    None => { -1.0 }
+                    Some(best_dna) => { best_dna.fitness_score }
+                }
+            };
+
+        if global_best_dna_fitness_score < population_best_dna.fitness_score
+        {
             {
                 let mut process_status = process_status.write().unwrap();
 
                 process_status.best_dna = Some(
                     Dna {
-                        reference: best_dna.reference.clone()
+                        reference: population_best_dna.reference.clone()
                     }
                 );
                 process_status.best_dna_number += 1;
             }
+
             count_generations_with_best = 1;
-        } else {
+        }
+        else
+        {
             count_generations_with_best += 1;
         }
 
@@ -314,17 +334,29 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
             break;
         }
 
-        if count_generations_with_best % count_generations_mutate_eps == 0
+        if count_generations_with_best_population % count_generations_mutate_eps == 0
         {
-            let eps_steps = count_generations_with_best / count_generations_mutate_eps;
+            let eps_steps = count_generations_with_best_population / count_generations_mutate_eps;
             let population_len = population.len();
-            for dna in &mut population[1..population_len]
+            for dna in &mut population[..population_len]
             {
                 for _ in 0..eps_steps
                 {
                     dna.mutate(&mut rng);
                 }
             }
+
+            calc_fitness_with_worker(
+                &writer_dna_queue_channel,
+                &reader_dna_result_queue_channel,
+                &mut dna_command_allocator,
+                &mut population,
+                population_len,
+            );
+
+            population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
+
+            population_best_dna = population[0].clone(&mut dna_allocator);
         }
     }
 
