@@ -1,5 +1,6 @@
 use std::{env, thread, time};
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use std::thread::{JoinHandle};
 
@@ -10,7 +11,7 @@ use mlua::{UserData, UserDataMethods};
 use rand::prelude::ThreadRng;
 use rand::Rng;
 
-use crate::dna::{Dna, DnaData};
+use crate::dna::{Dna, DnaData, LuaDna};
 use crate::worker::worker_main;
 
 pub struct DnaCommand {
@@ -55,6 +56,18 @@ impl UserData for LuaGeneticSolver {
             Ok(this.process_status.read().unwrap().best_dna_number)
         });
 
+        methods.add_method("GetBestDna", |_lua_context, this, ()| {
+            Ok(
+                LuaDna {
+                    reference: Rc::new(
+                        Dna {
+                            reference: this.process_status.read().unwrap().best_dna.as_ref().unwrap().reference.clone()
+                        }
+                    )
+                }
+            )
+        });
+        
         methods.add_method("GetBestDnaData", |lua_context, this, ()| {
             Ok(
                 create_table_dna_data_from_dna(

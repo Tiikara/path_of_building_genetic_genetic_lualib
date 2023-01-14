@@ -6,13 +6,14 @@ use std::sync::{Arc, RwLock};
 use crossbeam::channel::{Receiver, Sender};
 use mlua::{Function, Lua, LuaOptions, StdLib, UserData};
 use mlua::prelude::{LuaFunction, LuaMultiValue, LuaResult, LuaString, LuaTable};
+use crate::dna_encoder::create_dna_encoder;
 
 use crate::genetic::{create_table_dna_data_from_dna, DnaCommand, Session};
 
 #[derive(Clone)]
-struct LuaDnaCommand
+pub struct LuaDnaCommand
 {
-    reference: Rc<RefCell<Option<Box<DnaCommand>>>>
+    pub reference: Rc<RefCell<Option<Box<DnaCommand>>>>
 }
 
 impl UserData for LuaDnaCommand {}
@@ -30,11 +31,6 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
         let dna_command = worker_reader_dna_queue_channel.recv().unwrap();
 
         let res_table = lua_context.create_table().unwrap();
-
-        match &dna_command.dna {
-            Some(dna) => res_table.set("dnaData", create_table_dna_data_from_dna(lua_context, dna)).unwrap(),
-            None => panic!("Dna is not exists")
-        }
 
         res_table.set("handler", LuaDnaCommand { reference: Rc::new(RefCell::new(Some(dna_command))) }).unwrap();
 
@@ -105,6 +101,8 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
 
     globals.set("GeneticWorkerGetSessionNumber", worker_get_session_number_func).unwrap();
     globals.set("GeneticWorkerGetSessionParameters", worker_get_session_parameters_func).unwrap();
+
+    globals.set("CreateDnaEncoder", lua.create_function(create_dna_encoder).unwrap()).unwrap();
 
     globals.set("ScriptAbsoluteWorkingDir", working_dir).unwrap();
 

@@ -1,7 +1,10 @@
+extern crate core;
+
 mod genetic;
 mod dna;
 mod worker;
 mod lua_module;
+mod dna_encoder;
 
 #[cfg(test)]
 mod tests {

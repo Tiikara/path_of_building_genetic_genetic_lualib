@@ -1,9 +1,21 @@
+use std::cell::RefCell;
 use std::mem;
 use std::ops::{Deref, DerefMut, RangeInclusive};
+use std::rc::Rc;
+use mlua::UserData;
 use rand::Rng;
 use rand::rngs::ThreadRng;
+use crate::genetic::DnaCommand;
 
 const MAX_MUTATE_CLUSTER_SIZE: usize = 4;
+
+#[derive(Clone)]
+pub struct LuaDna
+{
+    pub reference: Rc<Dna>
+}
+
+impl UserData for LuaDna {}
 
 pub struct Dna {
     pub reference: Box<DnaData>
