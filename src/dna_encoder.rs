@@ -107,9 +107,11 @@ impl DnaEncoder {
 
             index_nodes_to_allocate.remove(&smallest_node_index);
 
+            let node = &self.tree_nodes[smallest_node_index];
+
             let has_path =
                 {
-                    let node = self.tree_nodes[smallest_node_index].borrow();
+                    let node = node.borrow();
 
                     node.path_indexes.is_empty() == false
                 };
@@ -120,23 +122,25 @@ impl DnaEncoder {
             }
 
             let path_indexes = {
-                let node = self.tree_nodes[smallest_node_index].borrow();
+                let node = node.borrow();
 
                 node.path_indexes.clone()
             };
 
             for path_index in path_indexes
             {
+                let path_node = &self.tree_nodes[path_index.clone()];
+
                 let is_ascend =
                     {
-                        let path_node = self.tree_nodes[path_index.clone()].borrow();
+                        let path_node = path_node.borrow();
 
                         path_node.is_ascend
                     };
 
                 let is_allocated =
                     {
-                        let mut path_node = self.tree_nodes[path_index.clone()].borrow_mut();
+                        let mut path_node = path_node.borrow_mut();
 
                         if is_ascend == false
                         {
@@ -163,7 +167,7 @@ impl DnaEncoder {
 
                 if is_allocated
                 {
-                    self.build_path_from_node(&self.tree_nodes[path_index.clone()]);
+                    self.build_path_from_node(path_node);
 
                     if is_ascend == false
                     {
