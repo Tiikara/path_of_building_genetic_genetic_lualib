@@ -11,7 +11,10 @@ use crate::worker::LuaDnaCommand;
 pub struct DnaEncoder
 {
     tree_nodes: Vec<RefCell<Node>>,
-    masteries: Vec<RefCell<Mastery>>
+    masteries: Vec<RefCell<Mastery>>,
+
+    path_indexes_buf: Vec<usize>,
+    index_nodes_to_allocate: HashSet<usize>
 }
 
 impl DnaEncoder {
@@ -56,13 +59,13 @@ impl DnaEncoder {
             }
         }
 
-        let mut index_nodes_to_allocate = HashSet::new();
+        self.index_nodes_to_allocate.clear();
 
         for (tree_node_index, nucl) in dna.body_nodes.iter().enumerate()
         {
             if *nucl == 1
             {
-                index_nodes_to_allocate.insert(tree_node_index);
+                self.index_nodes_to_allocate.insert(tree_node_index);
             }
         }
 
@@ -84,12 +87,12 @@ impl DnaEncoder {
 
         let mut allocated_normal_nodes = 0;
         let mut allocated_ascend_nodes = 0;
-        while index_nodes_to_allocate.is_empty() == false
+        while self.index_nodes_to_allocate.is_empty() == false
         {
             let mut smallest_node_index = usize::MAX;
             let mut smallest_node_path_dist = 0;
 
-            for index_node in &index_nodes_to_allocate
+            for index_node in &self.index_nodes_to_allocate
             {
                 let node = self.tree_nodes[index_node.clone()].borrow();
 
@@ -105,7 +108,7 @@ impl DnaEncoder {
                 break;
             }
 
-            index_nodes_to_allocate.remove(&smallest_node_index);
+            self.index_nodes_to_allocate.remove(&smallest_node_index);
 
             let node = &self.tree_nodes[smallest_node_index];
 
@@ -122,27 +125,22 @@ impl DnaEncoder {
             }
 
             let path_indexes = {
-                let node = node.borrow();
+                let mut node = node.borrow_mut();
 
-                node.path_indexes.clone()
+                std::mem::swap(&mut node.path_indexes, &mut self.path_indexes_buf);
+
+                &self.path_indexes_buf
             };
 
             for path_index in path_indexes
             {
                 let path_node = &self.tree_nodes[path_index.clone()];
 
-                let is_ascend =
-                    {
-                        let path_node = path_node.borrow();
-
-                        path_node.is_ascend
-                    };
-
-                let is_allocated =
+                let (is_allocated, is_ascend) =
                     {
                         let mut path_node = path_node.borrow_mut();
 
-                        if is_ascend == false
+                        if path_node.is_ascend == false
                         {
                             if allocated_normal_nodes == max_number_normal_nodes_to_allocate {
                                 break;
@@ -155,14 +153,17 @@ impl DnaEncoder {
                             }
                         }
 
-                        match path_node.node_type {
-                            NodeType::NORMAL | NodeType::MASTERY => {
-                                path_node.planned_alloc = true;
+                        let is_allocated =
+                            match path_node.node_type {
+                                NodeType::NORMAL | NodeType::MASTERY => {
+                                    path_node.planned_alloc = true;
 
-                                true
-                            },
-                            _ => false
-                        }
+                                    true
+                                },
+                                _ => false
+                            };
+
+                        (is_allocated, path_node.is_ascend)
                     };
 
                 if is_allocated
@@ -549,8 +550,12 @@ pub fn create_dna_encoder(_: &Lua, build_table: LuaTable) -> LuaResult<DnaEncode
         }
     }
 
+    let tree_nodes_len = tree_nodes.len().clone();
+
     Ok(DnaEncoder {
         tree_nodes,
-        masteries: masteries,
+        masteries,
+        path_indexes_buf: Vec::with_capacity(1000),
+        index_nodes_to_allocate: HashSet::with_capacity(tree_nodes_len)
     })
 }
