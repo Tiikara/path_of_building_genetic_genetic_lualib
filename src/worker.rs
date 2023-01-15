@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use crossbeam::channel::{Receiver, Sender};
 use mlua::{Function, Lua, LuaOptions, StdLib, UserData};
-use mlua::prelude::{LuaFunction, LuaMultiValue, LuaResult, LuaString, LuaTable};
+use mlua::prelude::{LuaMultiValue, LuaResult, LuaString, LuaTable};
 use crate::dna_encoder::create_dna_encoder;
 
 use crate::genetic::{DnaCommand, Session};
@@ -102,7 +102,7 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
     globals.set("GeneticWorkerGetSessionNumber", worker_get_session_number_func).unwrap();
     globals.set("GeneticWorkerGetSessionParameters", worker_get_session_parameters_func).unwrap();
 
-    globals.set("CreateDnaEncoder", lua.create_function(create_dna_encoder).unwrap()).unwrap();
+    globals.set("GeneticWorkerCreateDnaEncoder", lua.create_function(create_dna_encoder).unwrap()).unwrap();
 
     globals.set("ScriptAbsoluteWorkingDir", working_dir).unwrap();
 

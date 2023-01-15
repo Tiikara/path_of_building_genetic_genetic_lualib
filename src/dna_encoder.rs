@@ -1,12 +1,11 @@
-use std::borrow::{Borrow, BorrowMut};
-use std::cell::{RefCell, RefMut};
-use std::collections::{HashMap, HashSet, LinkedList};
+use std::borrow::{Borrow};
+use std::cell::{RefCell};
+use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
-use std::rc::Rc;
 use mlua::{Lua, TableExt, UserData, UserDataMethods};
 use mlua::prelude::{LuaResult, LuaString, LuaTable, LuaValue};
 use crate::dna::{Dna, LuaDna};
-use crate::genetic::DnaCommand;
+
 use crate::worker::LuaDnaCommand;
 
 pub struct DnaEncoder
@@ -312,7 +311,7 @@ impl UserData for DnaEncoder {
         });
 
         methods.add_method_mut("ConvertDnaCommandHandlerToBuild", |lua_context, this,
-                                                                   (build_table, mut dna_command, max_number_normal_nodes_to_allocate, max_number_ascend_nodes_to_allocate): (LuaTable, LuaDnaCommand, usize, usize)| {
+                                                                   (build_table, dna_command, max_number_normal_nodes_to_allocate, max_number_ascend_nodes_to_allocate): (LuaTable, LuaDnaCommand, usize, usize)| {
             let dna_command = dna_command.reference.deref();
 
             Ok(match dna_command.borrow().as_ref() {
@@ -326,11 +325,11 @@ impl UserData for DnaEncoder {
             })
         });
 
-        methods.add_method("GetTreeNodesCount", |lua_context, this, ()| {
+        methods.add_method("GetTreeNodesCount", |_lua_context, this, ()| {
             Ok(this.tree_nodes.len())
         });
 
-        methods.add_method("GetMasteryNodesCount", |lua_context, this, ()| {
+        methods.add_method("GetMasteryNodesCount", |_lua_context, this, ()| {
             Ok(this.mastery_nodes.len())
         });
     }
@@ -372,7 +371,7 @@ struct MasteryEffect
     id: i64
 }
 
-pub fn create_dna_encoder(lua_context: &Lua, build_table: LuaTable) -> LuaResult<DnaEncoder>
+pub fn create_dna_encoder(_: &Lua, build_table: LuaTable) -> LuaResult<DnaEncoder>
 {
     let spec_table: LuaTable = build_table.get("spec").unwrap();
 

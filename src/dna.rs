@@ -1,11 +1,8 @@
-use std::cell::RefCell;
-use std::mem;
 use std::ops::{Deref, DerefMut, RangeInclusive};
 use std::rc::Rc;
 use mlua::UserData;
 use rand::Rng;
 use rand::rngs::ThreadRng;
-use crate::genetic::DnaCommand;
 
 const MAX_MUTATE_CLUSTER_SIZE: usize = 4;
 
@@ -36,9 +33,6 @@ pub struct DnaData {
     pub body_masteries: Vec<u8>,
     pub fitness_score: f64
 }
-
-#[derive(Hash)]
-pub struct DnaKey<'a>(&'a [u8], &'a [u8]);
 
 impl DnaData {
     pub(crate) fn new(tree_nodes_count: usize, mastery_count: usize) -> DnaData {
