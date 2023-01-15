@@ -261,13 +261,15 @@ impl DnaEncoder {
     // alg from PassiveSpec.lua (function PassiveSpecClass:BuildPathFromNode(root))
     fn build_path_from_node(&self, queue_indexes: &mut Vec<usize>, root: &RefCell<Node>)
     {
-        let mut root = root.borrow_mut();
+        {
+            let mut root = root.borrow_mut();
 
-        root.path_dist = 0;
-        root.path_indexes.clear();
+            root.path_dist = 0;
+            root.path_indexes.clear();
 
-        queue_indexes.clear();
-        queue_indexes.push(root.tree_node_index);
+            queue_indexes.clear();
+            queue_indexes.push(root.tree_node_index);
+        }
 
         let mut o = 0; // out
         let mut i = 1; // in
