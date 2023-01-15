@@ -67,15 +67,6 @@ impl UserData for LuaGeneticSolver {
                 }
             )
         });
-        
-        methods.add_method("GetBestDnaData", |lua_context, this, ()| {
-            Ok(
-                create_table_dna_data_from_dna(
-                    lua_context,
-                    &this.process_status.read().unwrap().best_dna.as_ref().unwrap()
-                )
-            )
-        });
 
         methods.add_method_mut("CreateWorkers", |_lua_context, this, workers_count: usize| {
             if this.workers_was_created
@@ -116,9 +107,9 @@ impl UserData for LuaGeneticSolver {
             count_generations_mutate_eps,
             population_max_generation_size,
             tree_nodes_count,
-            mysteries_nodes_count,
+            masteries_nodes_count,
             target_normal_nodes_count,
-            target_ascendancy_nodes_count, is_wait): (usize, usize, usize, usize, usize, usize, usize, usize, bool)| {
+            target_ascendancy_nodes_count): (usize, usize, usize, usize, usize, usize, usize, usize)| {
 
             if population_max_generation_size % 2 != 0
             {
@@ -157,7 +148,7 @@ impl UserData for LuaGeneticSolver {
                               count_generations_mutate_eps,
                               population_max_generation_size,
                               tree_nodes_count,
-                              mysteries_nodes_count)
+                              masteries_nodes_count)
             });
 
             this.main_thread = Some(thread);
@@ -202,12 +193,12 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
                      count_generations_mutate_eps: usize,
                      population_max_generation_size: usize,
                      tree_nodes_count: usize,
-                     mysteries_nodes_count: usize)
+                     masteries_nodes_count: usize)
 {
     let mut dna_allocator = Vec::with_capacity(200000);
     for _ in 0..dna_allocator.capacity()
     {
-        dna_allocator.push(Box::new(DnaData::new(tree_nodes_count, mysteries_nodes_count)));
+        dna_allocator.push(Box::new(DnaData::new(tree_nodes_count, masteries_nodes_count)));
     }
 
     let mut dna_command_allocator = Vec::with_capacity(200000);
@@ -413,45 +404,4 @@ fn make_hard_fuck(dna_data_allocator: &mut Vec<Box<DnaData>>, dna_masters: &[Dna
 
         out_bastards.push(dna_master.combine(dna_data_allocator, dna_slave, rng));
     }
-}
-
-
-pub fn create_table_dna_data_from_dna<'a, 'b>(lua_context: &'a Lua, dna: &'b Dna) -> LuaTable<'a>
-{
-    let new_table = lua_context.create_table().expect("Nu nihuya");
-
-    let nodes_dna_table = lua_context.create_table().expect("Nu nihuya");
-    for (index, nucl) in dna.body_nodes.iter().enumerate() {
-        if *nucl == 1
-        {
-            nodes_dna_table.set(index + 1, 1).expect("Nu kak to tak");
-        }
-    }
-
-    let mut effects_map = HashMap::new();
-    for (index, nucl) in dna.body_mysteries.iter().enumerate() {
-        let index_node = index / 6;
-
-        if *nucl == 1
-        {
-            let effects_table =
-                effects_map
-                .entry(index_node)
-                .or_insert_with(|| Box::new(lua_context.create_table().expect("Nu nihuya")));
-
-            let index_effect = index % 6;
-
-            effects_table.set(index_effect + 1, 1).unwrap();
-        }
-    }
-
-    let mysteries_dna_table = lua_context.create_table().expect("Nu nihuya");
-    for (index_node, effects_table) in effects_map.into_iter() {
-        mysteries_dna_table.set(index_node + 1, *effects_table).unwrap();
-    }
-
-    new_table.set("treeNodesNumbers", nodes_dna_table).unwrap();
-    new_table.set("mysteriesNodesEffectsInfo", mysteries_dna_table).unwrap();
-
-    new_table
 }

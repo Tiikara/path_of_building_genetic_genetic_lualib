@@ -8,7 +8,7 @@ use mlua::{Function, Lua, LuaOptions, StdLib, UserData};
 use mlua::prelude::{LuaFunction, LuaMultiValue, LuaResult, LuaString, LuaTable};
 use crate::dna_encoder::create_dna_encoder;
 
-use crate::genetic::{create_table_dna_data_from_dna, DnaCommand, Session};
+use crate::genetic::{DnaCommand, Session};
 
 #[derive(Clone)]
 pub struct LuaDnaCommand
