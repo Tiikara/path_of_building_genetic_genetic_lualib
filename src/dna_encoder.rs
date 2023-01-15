@@ -14,12 +14,17 @@ pub struct DnaEncoder
     masteries: Vec<RefCell<Mastery>>,
 
     path_indexes_buf: Vec<usize>,
-    index_nodes_to_allocate: HashSet<usize>
+    index_nodes_to_allocate: HashSet<usize>,
+    queue_indexes_buffer: Vec<usize>
 }
 
 impl DnaEncoder {
     pub fn convert_dna_to_build<'a>(&mut self, lua_context: &'a Lua, build_table: LuaTable, dna: &Dna, max_number_normal_nodes_to_allocate: usize, max_number_ascend_nodes_to_allocate: usize) -> LuaTable<'a>
     {
+        let mut queue_indexes = Vec::new();
+
+        std::mem::swap(&mut queue_indexes, &mut self.queue_indexes_buffer);
+
         for (_node_index, node) in self.tree_nodes.iter().enumerate()
         {
             let mut node = node.borrow_mut();
@@ -55,7 +60,7 @@ impl DnaEncoder {
 
             if is_allocated
             {
-                self.build_path_from_node(node);
+                self.build_path_from_node(&mut queue_indexes, node);
             }
         }
 
@@ -168,7 +173,7 @@ impl DnaEncoder {
 
                 if is_allocated
                 {
-                    self.build_path_from_node(path_node);
+                    self.build_path_from_node(&mut queue_indexes, path_node);
 
                     if is_ascend == false
                     {
@@ -246,25 +251,23 @@ impl DnaEncoder {
         res_table.set("usedNormalNodeCount", allocated_normal_nodes).unwrap();
         res_table.set("usedAscendancyNodeCount", 6).unwrap();
 
+        // restore buffers
+        std::mem::swap(&mut queue_indexes, &mut self.queue_indexes_buffer);
+
         res_table
     }
 
     // Perform a breadth-first search of the tree, starting from this node, and determine if it is the closest node to any other nodes
     // alg from PassiveSpec.lua (function PassiveSpecClass:BuildPathFromNode(root))
-    fn build_path_from_node(&self, root: &RefCell<Node>)
+    fn build_path_from_node(&self, queue_indexes: &mut Vec<usize>, root: &RefCell<Node>)
     {
-        let mut queue_indexes = {
-            let mut root = root.borrow_mut();
+        let mut root = root.borrow_mut();
 
-            root.path_dist = 0;
-            root.path_indexes.clear();
+        root.path_dist = 0;
+        root.path_indexes.clear();
 
-            let mut queue_indexes = Vec::with_capacity(1000);
-
-            queue_indexes.push(root.tree_node_index);
-
-            queue_indexes
-        };
+        queue_indexes.clear();
+        queue_indexes.push(root.tree_node_index);
 
         let mut o = 0; // out
         let mut i = 1; // in
@@ -556,6 +559,7 @@ pub fn create_dna_encoder(_: &Lua, build_table: LuaTable) -> LuaResult<DnaEncode
         tree_nodes,
         masteries,
         path_indexes_buf: Vec::with_capacity(1000),
-        index_nodes_to_allocate: HashSet::with_capacity(tree_nodes_len)
+        index_nodes_to_allocate: HashSet::with_capacity(tree_nodes_len),
+        queue_indexes_buffer: Vec::with_capacity(tree_nodes_len)
     })
 }
