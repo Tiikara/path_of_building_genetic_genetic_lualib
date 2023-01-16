@@ -1,6 +1,6 @@
 use std::borrow::{Borrow, BorrowMut};
 use std::cell::{RefCell};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
 use mlua::{Lua, TableExt, UserData, UserDataMethods};
 use mlua::prelude::{LuaResult, LuaString, LuaTable, LuaValue};
@@ -67,7 +67,7 @@ pub struct DnaEncoderData2<'this>
     masteries: Vec<&'this mut Mastery>,
     path_nodes_buf: Vec<&'this mut NodeWrapper<'this>>,
     nodes_to_allocate: HashMap<usize, &'this mut NodeWrapper<'this>>,
-    queue_nodes_buffer: Vec<&'this mut NodeWrapper<'this>>
+    queue_nodes_buffer: VecDeque<&'this mut NodeWrapper<'this>>
 }
 
 #[self_referencing]
@@ -94,10 +94,10 @@ pub struct DnaEncoder
 impl DnaEncoder {
     pub fn convert_dna_to_build<'a>(&mut self, lua_context: &'a Lua, build_table: LuaTable, dna: &Dna, max_number_normal_nodes_to_allocate: usize, max_number_ascend_nodes_to_allocate: usize) -> LuaTable<'a>
     {
-        let mut queue_nodes = Vec::new();
-
         self.with_data_mut(|dna_encoder_data: &mut DnaEncoderData|{
             dna_encoder_data.with_data_mut(|dna_encoder_data: &mut DnaEncoderData2|{
+                let mut queue_nodes = VecDeque::new();
+
                 std::mem::swap(&mut queue_nodes, &mut dna_encoder_data.queue_nodes_buffer);
 
                 for mut node in &dna_encoder_data.tree_nodes
@@ -126,7 +126,7 @@ impl DnaEncoder {
                 {
                     if node.planned_alloc
                     {
-                        self.build_path_from_node(&mut queue_nodes, node);
+                        build_path_from_node(&mut queue_nodes, node);
                     }
                 }
 
@@ -189,7 +189,7 @@ impl DnaEncoder {
 
                     std::mem::swap(&mut node.path_nodes, &mut dna_encoder_data.path_nodes_buf);
 
-                    for path_node in dna_encoder_data.path_nodes_buf
+                    for path_node in &dna_encoder_data.path_nodes_buf
                     {
                         let (is_allocated, is_ascend) =
                             {
@@ -221,7 +221,7 @@ impl DnaEncoder {
 
                         if is_allocated
                         {
-                            self.build_path_from_node(&mut queue_nodes, path_node);
+                            build_path_from_node(&mut queue_nodes, *path_node);
 
                             if is_ascend == false
                             {
@@ -302,55 +302,57 @@ impl DnaEncoder {
 
                 res_table
             })
-        })
+        });
+
+        lua_context.create_table().unwrap()
+    }
+}
+
+// Perform a breadth-first search of the tree, starting from this node, and determine if it is the closest node to any other nodes
+// alg from PassiveSpec.lua (function PassiveSpecClass:BuildPathFromNode(root))
+fn build_path_from_node<'a>(queue: &mut VecDeque<&'a mut NodeWrapper<'a>>, root: &'a mut NodeWrapper<'a>)
+{
+    {
+        root.path_dist = 0;
+        root.path_nodes.clear();
+
+        queue.clear();
+        queue.push_back(root);
     }
 
-    // Perform a breadth-first search of the tree, starting from this node, and determine if it is the closest node to any other nodes
-    // alg from PassiveSpec.lua (function PassiveSpecClass:BuildPathFromNode(root))
-    fn build_path_from_node(&self, queue: &mut Vec<&mut NodeWrapper>, root: &mut NodeWrapper)
+    let mut o = 0; // out
+    let mut i = 1; // in
+
+    while o < i
     {
+        let node = queue.pop_front().unwrap();
+
+        o += 1;
+
+        let cur_dist = node.path_dist + 1;
+
+        for other in &node.linked_nodes
         {
-            root.path_dist = 0;
-            root.path_nodes.clear();
+            match other.node_type {
+                NodeType::NORMAL | NodeType::MASTERY(_) => {
+                    if other.path_dist > cur_dist
+                    {
+                        other.path_dist = cur_dist;
+                        other.path_nodes.clear();
 
-            queue.clear();
-            queue.push(root);
-        }
-
-        let mut o = 0; // out
-        let mut i = 1; // in
-
-        while o < i
-        {
-            let node = queue[o.clone()];
-
-            o += 1;
-
-            let cur_dist = node.path_dist + 1;
-
-            for other in &node.linked_nodes
-            {
-                match other.node_type {
-                    NodeType::NORMAL | NodeType::MASTERY(_) => {
-                        if other.path_dist > cur_dist
+                        other.path_nodes.push(*other);
+                        for node_path in node.path_nodes
                         {
-                            other.path_dist = cur_dist;
-                            other.path_nodes.clear();
-
-                            other.path_nodes.push(*other);
-                            for node_path in node.path_nodes
-                            {
-                                other.path_nodes.push(node_path)
-                            }
-
-                            queue.push(*other);
-
-                            i += 1;
+                            other.path_nodes.push(node_path)
                         }
+
+                        queue.push_back(*other);
+
+                        i += 1;
                     }
-                    NodeType::ClassStart => {}
-                    NodeType::AscendClassStart => {}
                 }
+                NodeType::ClassStart => {}
+                NodeType::AscendClassStart => {}
             }
         }
     }
@@ -481,10 +483,8 @@ pub fn create_dna_encoder(_: &Lua, build_table: LuaTable) -> LuaResult<DnaEncode
                                             effect_next_select_index: 0,
                                         });
 
-                                        let mastery = masteries_buffer.last_mut().unwrap();
+                                        masteries_hash.insert(node.name.clone(), masteries_buffer.len());
 
-                                        masteries_hash.insert(node.name.clone(), mastery);
-                                        masteries.push(mastery);
                                     }
                                     Some(_) => {}
                                 }
@@ -498,6 +498,10 @@ pub fn create_dna_encoder(_: &Lua, build_table: LuaTable) -> LuaResult<DnaEncode
                             });
                         }
 
+                        for mastery in masteries_buffer.iter_mut() {
+                            masteries.push(mastery);
+                        }
+
                         for node in nodes_wrapper_buffer.iter_mut()
                         {
                             let node_table: LuaTable = nodes_table.get(node.id).unwrap();
@@ -506,7 +510,7 @@ pub fn create_dna_encoder(_: &Lua, build_table: LuaTable) -> LuaResult<DnaEncode
                             let node_type =
                                 if lua_node_type == "Mastery"
                                 {
-                                    let mastery = masteries_hash.get_mut(&node.name).unwrap();
+                                    let mastery = &mut masteries_buffer[*masteries_hash.get_mut(&node.name).unwrap()];
 
                                     NodeType::MASTERY(MasteryVariant {
                                         mastery
@@ -570,7 +574,7 @@ pub fn create_dna_encoder(_: &Lua, build_table: LuaTable) -> LuaResult<DnaEncode
                             masteries,
                             path_nodes_buf: Vec::with_capacity(tree_nodes_buffer.len()),
                             nodes_to_allocate: HashMap::with_capacity(tree_nodes_buffer.len()),
-                            queue_nodes_buffer: Vec::with_capacity(tree_nodes_buffer.len())
+                            queue_nodes_buffer: VecDeque::with_capacity(tree_nodes_buffer.len())
                         }
                 }
             }.build()
