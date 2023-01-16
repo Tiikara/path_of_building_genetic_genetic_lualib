@@ -67,11 +67,30 @@ impl UserData for LuaGeneticSolver {
             )
         });
 
-        methods.add_method_mut("CreateWorkers", |_lua_context, this, workers_count: usize| {
+        methods.add_method_mut("CreateWorkers", |_lua_context, this, workers_count: Option<usize>| {
             if this.workers_was_created
             {
                 panic!("Workers already created")
             }
+
+            let workers_count =
+                match workers_count {
+                    None => {
+                        let cpus = num_cpus::get();
+
+                        // Allocate workers based on cpu
+                        // 1 thread for main genetic thread, 2 for PoB UI
+                        if cpus <= 3
+                        {
+                            1
+                        }
+                        else
+                        {
+                            cpus - 2
+                        }
+                    }
+                    Some(workers_count) => workers_count
+                };
 
             for _ in 0..workers_count
             {
