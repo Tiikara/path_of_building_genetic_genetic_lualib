@@ -249,7 +249,7 @@ impl DnaEncoder {
         let res_table = lua_context.create_table().unwrap();
 
         res_table.set("usedNormalNodeCount", allocated_normal_nodes).unwrap();
-        res_table.set("usedAscendancyNodeCount", 6).unwrap();
+        res_table.set("usedAscendancyNodeCount", allocated_ascend_nodes).unwrap();
 
         // restore buffers
         std::mem::swap(&mut queue_indexes, &mut self.queue_indexes_buffer);
