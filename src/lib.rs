@@ -6,6 +6,7 @@ mod worker;
 mod lua_module;
 mod dna_encoder;
 mod dna_cache_fitness;
+mod targets;
 
 #[cfg(test)]
 mod tests {

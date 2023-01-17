@@ -9,6 +9,7 @@ use mlua::prelude::{LuaMultiValue, LuaResult, LuaString, LuaTable};
 use crate::dna_encoder::create_dna_encoder;
 
 use crate::genetic::{DnaCommand, Session};
+use crate::targets::create_tables_from_targets;
 
 #[derive(Clone)]
 pub struct LuaDnaCommand
@@ -60,17 +61,22 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
 
     let worker_get_session_parameters_func = lua.create_function(move |lua_context, (): ()| {
 
-        let (target_normal_nodes_count, target_ascendancy_nodes_count) =
+        let (target_normal_nodes_count, target_ascendancy_nodes_count, targets_table, maximizes_table) =
             {
                 let session = session.read().unwrap();
 
-                (session.target_normal_nodes_count, session.target_ascendancy_nodes_count)
+                let (targets_table, maximizes_table) = create_tables_from_targets(lua_context, &session.targets);
+
+                (session.target_normal_nodes_count, session.target_ascendancy_nodes_count, targets_table, maximizes_table)
             };
 
         let res_table = lua_context.create_table().unwrap();
 
         res_table.set("targetNormalNodesCount", target_normal_nodes_count).unwrap();
         res_table.set("targetAscendancyNodesCount", target_ascendancy_nodes_count).unwrap();
+
+        res_table.set("targetStats", targets_table).unwrap();
+        res_table.set("maximizeStats", maximizes_table).unwrap();
 
         Ok(res_table)
     }).unwrap();

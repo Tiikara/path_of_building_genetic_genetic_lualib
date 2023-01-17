@@ -1,6 +1,7 @@
 use std::{env, thread};
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{JoinHandle};
 
 use crossbeam::channel::{Receiver, Sender, unbounded};
@@ -11,6 +12,7 @@ use rand::prelude::ThreadRng;
 use rand::Rng;
 
 use crate::dna::{Dna, DnaData, LuaDna};
+use crate::targets::{create_targets_from_tables, Target};
 use crate::worker::worker_main;
 
 pub struct DnaCommand {
@@ -20,7 +22,8 @@ pub struct DnaCommand {
 pub struct Session {
     pub number: usize,
     pub target_normal_nodes_count: usize,
-    pub target_ascendancy_nodes_count: usize
+    pub target_ascendancy_nodes_count: usize,
+    pub targets: Vec<Target>
 }
 
 pub struct ProcessStatus {
@@ -42,7 +45,9 @@ pub struct LuaGeneticSolver
 
     pub workers_was_created: bool,
 
-    pub main_thread: Option<JoinHandle<()>>
+    pub main_thread: Option<JoinHandle<()>>,
+
+    pub is_received_stop_request: Arc<AtomicBool>
 }
 
 impl UserData for LuaGeneticSolver {
@@ -65,6 +70,20 @@ impl UserData for LuaGeneticSolver {
                     )
                 }
             )
+        });
+
+        methods.add_method_mut("StopSolve", |_lua_context, this, (): ()| {
+
+            let process_status = this.process_status.read().unwrap();
+
+            if process_status.is_progress == false
+            {
+                panic!("Solve is not in progress");
+            }
+
+            this.is_received_stop_request.store(true, Ordering::SeqCst);
+
+            Ok(())
         });
 
         methods.add_method_mut("CreateWorkers", |_lua_context, this, workers_count: Option<usize>| {
@@ -127,7 +146,10 @@ impl UserData for LuaGeneticSolver {
             tree_nodes_count,
             masteries_nodes_count,
             target_normal_nodes_count,
-            target_ascendancy_nodes_count): (usize, usize, usize, usize, usize, usize, usize, usize)| {
+            target_ascendancy_nodes_count,
+            targets_table,
+            maximizes_table
+        ): (usize, usize, usize, usize, usize, usize, usize, usize, LuaTable, LuaTable)| {
 
             if population_max_generation_size % 2 != 0
             {
@@ -152,15 +174,21 @@ impl UserData for LuaGeneticSolver {
                 session_parameters.target_normal_nodes_count = target_normal_nodes_count;
                 session_parameters.target_ascendancy_nodes_count = target_ascendancy_nodes_count;
                 session_parameters.number += 1;
+
+                session_parameters.targets = create_targets_from_tables(targets_table, maximizes_table);
+
+                this.is_received_stop_request.store(false, Ordering::SeqCst);
             }
 
             let writer_dna_queue_channel = this.writer_dna_queue_channel.clone();
             let reader_dna_result_queue_channel = this.reader_dna_result_queue_channel.clone();
             let process_status = this.process_status.clone();
+            let is_received_stop_request = this.is_received_stop_request.clone();
             let thread = thread::spawn(move || {
                 genetic_solve(writer_dna_queue_channel,
                               reader_dna_result_queue_channel,
                               process_status,
+                              is_received_stop_request,
                               max_generations_count,
                               stop_generations_eps,
                               count_generations_mutate_eps,
@@ -191,7 +219,8 @@ pub fn create_genetic_solver(_: &Lua, (): ()) -> LuaResult<LuaGeneticSolver> {
         session: Arc::new(RwLock::new(Session {
             number: 0,
             target_ascendancy_nodes_count: 0,
-            target_normal_nodes_count: 0
+            target_normal_nodes_count: 0,
+            targets: vec![],
         })),
         process_status: Arc::new(RwLock::new(ProcessStatus {
             best_dna: None,
@@ -199,13 +228,15 @@ pub fn create_genetic_solver(_: &Lua, (): ()) -> LuaResult<LuaGeneticSolver> {
             is_progress: false
         })),
         main_thread: None,
-        workers_was_created: false
+        workers_was_created: false,
+        is_received_stop_request: Arc::new(AtomicBool::new(false)),
     })
 }
 
 pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
                      reader_dna_result_queue_channel: Receiver<Box<DnaCommand>>,
                      process_status: Arc<RwLock<ProcessStatus>>,
+                     is_received_stop_request: Arc<AtomicBool>,
                      max_generations_count: usize,
                      stop_generations_eps: usize,
                      count_generations_mutate_eps: usize,
@@ -256,6 +287,11 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
     let mut count_generations_with_best_population = 1;
 
     for _ in 1..=max_generations_count {
+        if is_received_stop_request.load(Ordering::SeqCst)
+        {
+            break;
+        }
+
         let start_mutated_index = population.len();
 
         for i in 0..population.len() {
@@ -384,6 +420,7 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
 
     {
         process_status.write().unwrap().is_progress = false;
+        is_received_stop_request.store(false, Ordering::SeqCst);
     }
 }
 
