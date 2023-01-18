@@ -12,6 +12,5 @@ crate-type = ["cdylib"]
 mlua = { version = "0.8", features = ["luajit", "module"] }
 rand = "0.8.5"
 crossbeam = "0.8.1"
-typed-arena = "2.0.1"
-kioku = "0.3.1"
+serde_json = "1.0.91"
 num_cpus  = "1.15.0"

@@ -1,6 +1,8 @@
 use std::borrow::{Borrow};
 use std::cell::{RefCell};
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::Write;
 use std::ops::Deref;
 use mlua::{Lua, TableExt, UserData, UserDataMethods};
 use mlua::prelude::{LuaResult, LuaString, LuaTable, LuaValue};
@@ -47,9 +49,9 @@ impl DnaEncoder {
         {
             let mut node = node.borrow_mut();
 
-            node.planned_alloc = node.default_alloc;
+            node.alloc = node.default_alloc;
 
-            if node.planned_alloc
+            if node.alloc
             {
                 node.path_dist = 0;
             }
@@ -73,7 +75,7 @@ impl DnaEncoder {
         {
             let is_allocated =
                 {
-                    node.borrow().planned_alloc
+                    node.borrow().alloc
                 };
 
             if is_allocated
@@ -107,6 +109,14 @@ impl DnaEncoder {
                 }
             }
         }
+
+        let spec_table: LuaTable = build_table.get("spec").unwrap();
+        let mastery_selections_table: LuaTable = spec_table.get("masterySelections").unwrap();
+        let tree_table: LuaTable = spec_table.get("tree").unwrap();
+        let mastery_effects_table: LuaTable = tree_table.get("masteryEffects").unwrap();
+        let _: LuaValue = spec_table.call_method("ResetNodes", 0).unwrap();
+        let nodes_table: LuaTable = spec_table.get("nodes").unwrap();
+        let alloc_nodes_table: LuaTable = spec_table.get("allocNodes").unwrap();
 
         let mut allocated_normal_nodes = 0;
         let mut allocated_ascend_nodes = 0;
@@ -148,9 +158,18 @@ impl DnaEncoder {
             }
 
             let path_indexes = {
-                let mut node = node.borrow_mut();
+                {
+                    let mut node = node.borrow_mut();
 
-                std::mem::swap(&mut node.path_indexes, &mut self.path_indexes_buf);
+                    std::mem::swap(&mut node.path_indexes, &mut self.path_indexes_buf);
+                }
+
+                self.path_indexes_buf.sort_unstable_by(|a, b| {
+                    let a = &self.tree_nodes[a.clone()].borrow();
+                    let b = &self.tree_nodes[b.clone()].borrow();
+
+                    a.path_dist.cmp(&b.path_dist)
+                });
 
                 &self.path_indexes_buf
             };
@@ -163,7 +182,11 @@ impl DnaEncoder {
                     {
                         let mut path_node = path_node.borrow_mut();
 
-                        if path_node.is_ascend == false
+                        if path_node.alloc {
+                            continue;
+                        }
+
+                        if path_node.ascendancy_id == usize::MAX
                         {
                             if allocated_normal_nodes == max_number_normal_nodes_to_allocate {
                                 break;
@@ -178,19 +201,56 @@ impl DnaEncoder {
 
                         let is_allocated =
                             match path_node.node_type {
-                                NodeType::NORMAL | NodeType::MASTERY => {
-                                    path_node.planned_alloc = true;
+                                NodeType::NORMAL => true,
+                                NodeType::MASTERY => {
+                                    let mut mastery = self.masteries[path_node.mastery_index].borrow_mut();
 
-                                    true
+                                    if mastery.effect_next_select_index < mastery.effects_indexes_to_select.len()
+                                    {
+                                        let effect_index = mastery.effects_indexes_to_select[mastery.effect_next_select_index];
+
+                                        let effect_id = mastery.effects[effect_index].id;
+
+                                        mastery_selections_table.set(path_node.id, effect_id).unwrap();
+
+                                        let effect_table: LuaTable = mastery_effects_table.get(effect_id).unwrap();
+
+                                        let lua_sd: LuaValue = effect_table.get("sd").unwrap();
+
+                                        let node_table: LuaTable = nodes_table.get(path_node.id).unwrap();
+
+                                        node_table.set("sd", lua_sd).unwrap();
+                                        node_table.set("allMasteryOptions", false).unwrap();
+
+                                        let _: LuaValue = tree_table.call_method("ProcessStats", node_table).unwrap();
+
+                                        mastery.effect_next_select_index += 1;
+
+                                        true
+                                    }
+                                    else
+                                    {
+                                        false
+                                    }
                                 },
                                 _ => false
                             };
 
-                        (is_allocated, path_node.is_ascend)
+                        (is_allocated, path_node.ascendancy_id != usize::MAX)
                     };
 
                 if is_allocated
                 {
+                    {
+                        let mut path_node = path_node.borrow_mut();
+
+                        let node_table: LuaTable = nodes_table.get(path_node.id).unwrap();
+                        node_table.set("alloc", true).unwrap();
+                        alloc_nodes_table.set(path_node.id, node_table).unwrap();
+
+                        path_node.alloc = true;
+                    }
+
                     self.build_path_from_node(&mut queue_indexes, path_node);
 
                     if is_ascend == false
@@ -201,65 +261,6 @@ impl DnaEncoder {
                     {
                         allocated_ascend_nodes += 1;
                     }
-                }
-            }
-        }
-
-        let spec_table: LuaTable = build_table.get("spec").unwrap();
-        let mastery_selections_table: LuaTable = spec_table.get("masterySelections").unwrap();
-        let tree_table: LuaTable = spec_table.get("tree").unwrap();
-        let mastery_effects_table: LuaTable = tree_table.get("masteryEffects").unwrap();
-        let _: LuaValue = spec_table.call_method("ResetNodes", 0).unwrap();
-        let nodes_table: LuaTable = spec_table.get("nodes").unwrap();
-        let alloc_nodes_table: LuaTable = spec_table.get("allocNodes").unwrap();
-
-        for node in &self.tree_nodes
-        {
-            let node = node.borrow();
-
-            if node.planned_alloc
-            {
-                let need_allocate =
-                    match node.node_type {
-                        NodeType::MASTERY => {
-                            let mut mastery = self.masteries[node.mastery_index].borrow_mut();
-
-                            if mastery.effect_next_select_index < mastery.effects_indexes_to_select.len()
-                            {
-                                let effect_index = mastery.effects_indexes_to_select[mastery.effect_next_select_index];
-
-                                let effect_id = mastery.effects[effect_index].id;
-
-                                mastery_selections_table.set(node.id, effect_id).unwrap();
-
-                                let effect_table: LuaTable = mastery_effects_table.get(effect_id).unwrap();
-
-                                let lua_sd: LuaValue = effect_table.get("sd").unwrap();
-
-                                let node_table: LuaTable = nodes_table.get(node.id).unwrap();
-
-                                node_table.set("sd", lua_sd).unwrap();
-                                node_table.set("allMasteryOptions", false).unwrap();
-
-                                let _: LuaValue = tree_table.call_method("ProcessStats", node_table).unwrap();
-
-                                mastery.effect_next_select_index += 1;
-
-                                true
-                            }
-                            else
-                            {
-                                false
-                            }
-                        }
-                        _ => true
-                    };
-
-                if need_allocate
-                {
-                    let node_table: LuaTable = nodes_table.get(node.id).unwrap();
-                    node_table.set("alloc", true).unwrap();
-                    alloc_nodes_table.set(node.id, node_table).unwrap();
                 }
             }
         }
@@ -304,22 +305,25 @@ impl DnaEncoder {
 
                 match other.node_type {
                     NodeType::NORMAL | NodeType::MASTERY => {
-                        if other.path_dist > cur_dist
+                        if node.ascendancy_id == other.ascendancy_id || (cur_dist == 1 && other.ascendancy_id == usize::MAX)
                         {
-                            other.path_dist = cur_dist;
-                            other.path_indexes.clear();
-
-                            let other_node_index = other.tree_node_index.clone();
-
-                            other.path_indexes.push(other_node_index);
-                            for node_path_index in node.path_indexes.iter()
+                            if other.path_dist > cur_dist
                             {
-                                other.path_indexes.push(node_path_index.clone())
+                                other.path_dist = cur_dist;
+                                other.path_indexes.clear();
+
+                                let other_node_index = other.tree_node_index.clone();
+
+                                other.path_indexes.push(other_node_index);
+                                for node_path_index in node.path_indexes.iter()
+                                {
+                                    other.path_indexes.push(node_path_index.clone())
+                                }
+
+                                queue_indexes.push(other.tree_node_index);
+
+                                i += 1;
                             }
-
-                            queue_indexes.push(other.tree_node_index);
-
-                            i += 1;
                         }
                     }
                     NodeType::ClassStart => {}
@@ -365,8 +369,8 @@ struct Node
     linked_indexes: Vec<usize>,
     path_indexes: Vec<usize>,
     path_dist: usize,
-    planned_alloc: bool,
-    is_ascend: bool,
+    alloc: bool,
+    ascendancy_id: usize,
     default_alloc: bool
 }
 
@@ -403,6 +407,19 @@ pub fn create_dna_encoder(build_table: &LuaTable) -> DnaEncoder
 
     let mut node_id_index_map = HashMap::new();
 
+    let mut ascendacy_id_hash = HashMap::new();
+    let mut current_ascendancy_id = 0;
+
+    let current_ascend_class_name: String = spec_table.get("curAscendClassName").unwrap();
+    let selected_ascendancy_id =
+            ascendacy_id_hash
+                .entry(current_ascend_class_name)
+                .or_insert_with(|| {
+                    let new_id = current_ascendancy_id;
+                    current_ascendancy_id += 1;
+                    new_id
+                }).clone();
+
     for node_entry in nodes_table.pairs()
     {
         let (node_id, lua_node_table): (i64, LuaTable) = node_entry.unwrap();
@@ -430,12 +447,22 @@ pub fn create_dna_encoder(build_table: &LuaTable) -> DnaEncoder
 
         let node_alloc: bool = lua_node_table.get("alloc").unwrap();
 
-        let lua_node_ascend_name: Option<LuaString> = lua_node_table.get("ascendancyName").unwrap();
+        let lua_node_ascend_name: Option<String> = lua_node_table.get("ascendancyName").unwrap();
 
-        let is_ascend_node =
+        let node_ascend_id =
             match lua_node_ascend_name {
-                None => {false}
-                Some(_) => {true}
+                None => {
+                    usize::MAX
+                }
+                Some(ascend_name) => {
+                    ascendacy_id_hash
+                        .entry(ascend_name)
+                        .or_insert_with(|| {
+                            let new_id = current_ascendancy_id;
+                            current_ascendancy_id += 1;
+                            new_id
+                        }).clone()
+                }
             };
 
         let node = Node {
@@ -447,8 +474,8 @@ pub fn create_dna_encoder(build_table: &LuaTable) -> DnaEncoder
             linked_indexes: Vec::with_capacity(100),
             path_indexes: Vec::with_capacity(1000),
             path_dist: 0,
-            planned_alloc: false,
-            is_ascend: is_ascend_node,
+            alloc: false,
+            ascendancy_id: node_ascend_id,
             default_alloc: node_alloc
         };
 

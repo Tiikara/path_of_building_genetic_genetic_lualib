@@ -9,7 +9,8 @@ pub struct Target
     pub actor: String,
     pub weight: f64,
     pub target: f64,
-    pub is_maximize: bool
+    pub is_maximize: bool,
+    pub lower_is_better: bool
 }
 
 
@@ -21,12 +22,19 @@ pub fn create_targets_from_tables(targets_table: LuaTable, maximize_table: LuaTa
     {
         let (_, lua_target): (LuaValue, LuaTable) = entry_target.unwrap();
 
+        let lower_is_better =
+            match lua_target.get::<&str, Option<bool>>("lowerIsBetter").unwrap() {
+                None => false,
+                Some(lower_is_better) => lower_is_better
+            };
+
         targets.push(Target {
             stat: lua_target.get("stat").unwrap(),
             actor: lua_target.get("actor").unwrap(),
             weight: lua_target.get("weight").unwrap(),
             target: lua_target.get("target").unwrap(),
-            is_maximize: false
+            is_maximize: false,
+            lower_is_better
         });
     }
 
@@ -34,12 +42,19 @@ pub fn create_targets_from_tables(targets_table: LuaTable, maximize_table: LuaTa
     {
         let (_, lua_target): (LuaValue, LuaTable) = entry_target.unwrap();
 
+        let lower_is_better =
+            match lua_target.get::<&str, Option<bool>>("lowerIsBetter").unwrap() {
+                None => false,
+                Some(lower_is_better) => lower_is_better
+            };
+
         targets.push(Target {
             stat: lua_target.get("stat").unwrap(),
             actor: lua_target.get("actor").unwrap(),
             weight: lua_target.get("weight").unwrap(),
             target: 0.0,
-            is_maximize: true
+            is_maximize: true,
+            lower_is_better
         });
     }
 

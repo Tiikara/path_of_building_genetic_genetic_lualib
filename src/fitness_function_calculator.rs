@@ -31,26 +31,7 @@ impl FitnessFunctionCalculator
     {
         let mut actor_outputs = HashMap::with_capacity(2);
 
-        let mut csvs = 1.0;
-
-        let used_normal_node_count = used_normal_node_count as f64;
-        let used_ascendancy_node_count = used_ascendancy_node_count as f64;
-
-        if used_normal_node_count > self.target_normal_nodes_count
-        {
-            csvs *= self.calc_scv(2.0 * self.target_normal_nodes_count - used_normal_node_count, USED_NODE_COUNT_WEIGHT, self.target_normal_nodes_count);
-        }
-        else if used_normal_node_count < self.target_normal_nodes_count {
-            csvs *= 1.0 + USED_NODE_COUNT_FACTOR * (self.target_normal_nodes_count + 1.0 - used_normal_node_count).ln()
-        }
-
-        if used_ascendancy_node_count > self.target_ascendancy_nodes_count
-        {
-            csvs *= self.calc_scv(2.0 * self.target_ascendancy_nodes_count - used_ascendancy_node_count, USED_NODE_COUNT_WEIGHT, self.target_ascendancy_nodes_count);
-        }
-        else if used_ascendancy_node_count < self.target_ascendancy_nodes_count {
-            csvs *= 1.0 + USED_NODE_COUNT_FACTOR * (self.target_ascendancy_nodes_count + 1.0 - used_ascendancy_node_count).ln()
-        }
+        let mut score = 1.0;
 
         for target in &self.targets
         {
@@ -68,10 +49,17 @@ impl FitnessFunctionCalculator
             {
                 match stat_value {
                     None => {
-                        csvs *= 0.01;
+                        score *= 0.01;
                     }
                     Some(stat_value) => {
-                        csvs *= stat_value * target.weight;
+                        if target.lower_is_better
+                        {
+                            score /= stat_value * target.weight;
+                        }
+                        else
+                        {
+                            score *= stat_value * target.weight;
+                        }
                     }
                 }
             }
@@ -79,10 +67,10 @@ impl FitnessFunctionCalculator
             {
                 match stat_value {
                     None => {
-                        csvs *= 0.01;
+                        score *= 0.01;
                     }
                     Some(stat_value) => {
-                        csvs *= self.calc_scv(stat_value, target.weight, target.target);
+                        score *= self.calc_target_mul(stat_value, target.weight, target.target, target.lower_is_better);
                     }
                 }
             }
@@ -112,7 +100,7 @@ impl FitnessFunctionCalculator
             }
         }
 
-        csvs *=
+        score *=
             match player_output_table.get::<&str, Option<f64>>("ManaPerSecondCost").unwrap() {
                 None => {
                     0.01
@@ -124,7 +112,7 @@ impl FitnessFunctionCalculator
                     }
                     else
                     {
-                        self.calc_scv(mana_recovery_sum / mana_per_second_cost, 1.0, 1.0)
+                        self.calc_target_mul(mana_recovery_sum, 1.0, mana_per_second_cost, false)
                     }
                 }
             };
@@ -137,7 +125,7 @@ impl FitnessFunctionCalculator
                     match player_output_table.get::<&str, Option<f64>>("Str").unwrap() {
                         None => {},
                         Some(stat) => {
-                            csvs *= self.calc_scv(stat / req, 1.0, 1.0)
+                            score *= self.calc_target_mul(stat, 1.0, req, false);
                         }
                     }
                 }
@@ -152,7 +140,7 @@ impl FitnessFunctionCalculator
                     match player_output_table.get::<&str, Option<f64>>("Int").unwrap() {
                         None => {},
                         Some(stat) => {
-                            csvs *= self.calc_scv(stat / req, 1.0, 1.0)
+                            score *= self.calc_target_mul(stat, 1.0, req, false);
                         }
                     }
                 }
@@ -167,30 +155,33 @@ impl FitnessFunctionCalculator
                     match player_output_table.get::<&str, Option<f64>>("Dex").unwrap() {
                         None => {},
                         Some(stat) => {
-                            csvs *= self.calc_scv(stat / req, 1.0, 1.0)
+                            score *= self.calc_target_mul(stat / req, 1.0, 1.0, false);
                         }
                     }
                 }
             }
         }
 
-        csvs
+        score
     }
 
-    fn calc_scv(&self, x: f64, weight: f64, target: f64) -> f64
+    fn calc_target_mul(&self, x: f64, weight: f64, target: f64, lower_is_better: bool) -> f64
     {
-        let x =
-            if x < target
+        let mut ratio =
+            if lower_is_better
             {
-                x
+                target / x
             }
             else
             {
-                target
+                x / target
             };
 
-        (CSV_WEIGHT_MULTIPLIER * x * (weight / target)).exp() / (weight * CSV_WEIGHT_MULTIPLIER).exp()
+        if ratio > 1.0
+        {
+            ratio = 1.0;
+        }
+
+        ratio
     }
-
-
 }
