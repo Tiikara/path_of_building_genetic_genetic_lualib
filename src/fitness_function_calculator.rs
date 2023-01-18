@@ -83,7 +83,6 @@ impl FitnessFunctionCalculator
                     }
                     Some(stat_value) => {
                         csvs *= self.calc_scv(stat_value, target.weight, target.target);
-                        //fs::write("tmp.txt", format!("{} {} {} {}", stat_value, target.weight, target.target, self.calc_scv(stat_value, target.weight, target.target))).expect("");
                     }
                 }
             }
