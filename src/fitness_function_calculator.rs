@@ -88,6 +88,92 @@ impl FitnessFunctionCalculator
             }
         }
 
+        let player_output_table = actor_outputs
+            .entry("player")
+            .or_insert_with(|| {
+                let actor_table = stats_env.get::<&str, LuaTable>("player").unwrap();
+
+                actor_table.get::<&str, LuaTable>("output").unwrap()
+            });
+
+        let mut mana_recovery_sum = 0.0;
+
+        match player_output_table.get::<&str, Option<f64>>("ManaRegenRecovery").unwrap() {
+            None => {},
+            Some(mana_regen_recovery) => {
+                mana_recovery_sum += mana_regen_recovery;
+            }
+        }
+
+        match player_output_table.get::<&str, Option<f64>>("ManaLeechGainRate").unwrap() {
+            None => {},
+            Some(mana_leech_gain_rate) => {
+                mana_recovery_sum += mana_leech_gain_rate;
+            }
+        }
+
+        csvs *=
+            match player_output_table.get::<&str, Option<f64>>("ManaPerSecondCost").unwrap() {
+                None => {
+                    0.01
+                },
+                Some(mana_per_second_cost) => {
+                    if mana_per_second_cost == 0.0
+                    {
+                        mana_per_second_cost
+                    }
+                    else
+                    {
+                        self.calc_scv(mana_recovery_sum / mana_per_second_cost, 1.0, 1.0)
+                    }
+                }
+            };
+
+        match player_output_table.get::<&str, Option<f64>>("ReqStr").unwrap() {
+            None => {},
+            Some(req) => {
+                if req != 0.0
+                {
+                    match player_output_table.get::<&str, Option<f64>>("Str").unwrap() {
+                        None => {},
+                        Some(stat) => {
+                            csvs *= self.calc_scv(stat / req, 1.0, 1.0)
+                        }
+                    }
+                }
+            }
+        }
+
+        match player_output_table.get::<&str, Option<f64>>("ReqInt").unwrap() {
+            None => {},
+            Some(req) => {
+                if req != 0.0
+                {
+                    match player_output_table.get::<&str, Option<f64>>("Int").unwrap() {
+                        None => {},
+                        Some(stat) => {
+                            csvs *= self.calc_scv(stat / req, 1.0, 1.0)
+                        }
+                    }
+                }
+            }
+        }
+
+        match player_output_table.get::<&str, Option<f64>>("ReqDex").unwrap() {
+            None => {},
+            Some(req) => {
+                if req != 0.0
+                {
+                    match player_output_table.get::<&str, Option<f64>>("Dex").unwrap() {
+                        None => {},
+                        Some(stat) => {
+                            csvs *= self.calc_scv(stat / req, 1.0, 1.0)
+                        }
+                    }
+                }
+            }
+        }
+
         csvs
     }
 
