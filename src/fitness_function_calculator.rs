@@ -1,13 +1,14 @@
 use std::cmp::min;
 use std::collections::HashMap;
+use std::f64::MIN;
 use std::fs;
 use mlua::prelude::LuaTable;
 use mlua::Table;
 use crate::targets::Target;
 
-const USED_NODE_COUNT_WEIGHT: f64 = 5.0;
-const USED_NODE_COUNT_FACTOR: f64 = 0.0005;
-const CSV_WEIGHT_MULTIPLIER: f64 = 10.0;
+const MIN_TARGET_MULTIPLIER: f64 = 0.01;
+
+
 
 pub struct FitnessFunctionCalculator
 {
@@ -49,7 +50,7 @@ impl FitnessFunctionCalculator
             {
                 match stat_value {
                     None => {
-                        score *= 0.01;
+                        score *= MIN_TARGET_MULTIPLIER;
                     }
                     Some(stat_value) => {
                         if target.lower_is_better
@@ -67,7 +68,7 @@ impl FitnessFunctionCalculator
             {
                 match stat_value {
                     None => {
-                        score *= 0.01;
+                        score *= MIN_TARGET_MULTIPLIER;
                     }
                     Some(stat_value) => {
                         score *= self.calc_target_mul(stat_value, target.weight, target.target, target.lower_is_better);
@@ -103,17 +104,10 @@ impl FitnessFunctionCalculator
         score *=
             match player_output_table.get::<&str, Option<f64>>("ManaPerSecondCost").unwrap() {
                 None => {
-                    0.01
+                    MIN_TARGET_MULTIPLIER
                 },
                 Some(mana_per_second_cost) => {
-                    if mana_per_second_cost == 0.0
-                    {
-                        mana_per_second_cost
-                    }
-                    else
-                    {
-                        self.calc_target_mul(mana_recovery_sum, 1.0, mana_per_second_cost, false)
-                    }
+                    self.calc_target_mul(mana_recovery_sum, 1.0, mana_per_second_cost, false)
                 }
             };
 
@@ -155,7 +149,7 @@ impl FitnessFunctionCalculator
                     match player_output_table.get::<&str, Option<f64>>("Dex").unwrap() {
                         None => {},
                         Some(stat) => {
-                            score *= self.calc_target_mul(stat / req, 1.0, 1.0, false);
+                            score *= self.calc_target_mul(stat, 1.0, req, false);
                         }
                     }
                 }
@@ -170,11 +164,25 @@ impl FitnessFunctionCalculator
         let mut ratio =
             if lower_is_better
             {
-                target / x
+                if x == 0.0
+                {
+                    1.0
+                }
+                else
+                {
+                    target / x
+                }
             }
             else
             {
-                x / target
+                if target == 0.0
+                {
+                    1.0
+                }
+                else
+                {
+                    x / target
+                }
             };
 
         if ratio > 1.0
@@ -182,6 +190,6 @@ impl FitnessFunctionCalculator
             ratio = 1.0;
         }
 
-        ratio
+        MIN_TARGET_MULTIPLIER + (1.0 - MIN_TARGET_MULTIPLIER) * ratio
     }
 }
