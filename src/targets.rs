@@ -2,13 +2,14 @@ use std::borrow::Borrow;
 use mlua::{Lua, Table, UserData};
 use mlua::prelude::{LuaTable, LuaValue};
 
+#[derive(Clone)]
 pub struct Target
 {
-    stat: String,
-    actor: String,
-    weight: f64,
-    target: f64,
-    is_maximize: bool
+    pub stat: String,
+    pub actor: String,
+    pub weight: f64,
+    pub target: f64,
+    pub is_maximize: bool
 }
 
 
@@ -25,7 +26,7 @@ pub fn create_targets_from_tables(targets_table: LuaTable, maximize_table: LuaTa
             actor: lua_target.get("actor").unwrap(),
             weight: lua_target.get("weight").unwrap(),
             target: lua_target.get("target").unwrap(),
-            is_maximize: false,
+            is_maximize: false
         });
     }
 
@@ -38,7 +39,7 @@ pub fn create_targets_from_tables(targets_table: LuaTable, maximize_table: LuaTa
             actor: lua_target.get("actor").unwrap(),
             weight: lua_target.get("weight").unwrap(),
             target: 0.0,
-            is_maximize: true,
+            is_maximize: true
         });
     }
 

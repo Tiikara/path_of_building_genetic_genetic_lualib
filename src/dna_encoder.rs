@@ -18,8 +18,26 @@ pub struct DnaEncoder
     queue_indexes_buffer: Vec<usize>
 }
 
+pub struct DnaConvertResult
+{
+    pub allocated_normal_nodes: usize,
+    pub allocated_ascend_nodes: usize
+}
+
+impl DnaConvertResult {
+    pub fn get_table<'a>(&self, lua_context: &'a Lua) -> LuaTable<'a>
+    {
+        let res_table = lua_context.create_table().unwrap();
+
+        res_table.set("usedNormalNodeCount", self.allocated_normal_nodes).unwrap();
+        res_table.set("usedAscendancyNodeCount", self.allocated_ascend_nodes).unwrap();
+
+        res_table
+    }
+}
+
 impl DnaEncoder {
-    pub fn convert_dna_to_build<'a>(&mut self, lua_context: &'a Lua, build_table: LuaTable, dna: &Dna, max_number_normal_nodes_to_allocate: usize, max_number_ascend_nodes_to_allocate: usize) -> LuaTable<'a>
+    pub fn convert_dna_to_build(&mut self, build_table: &LuaTable, dna: &Dna, max_number_normal_nodes_to_allocate: usize, max_number_ascend_nodes_to_allocate: usize) -> DnaConvertResult
     {
         let mut queue_indexes = Vec::new();
 
@@ -246,15 +264,13 @@ impl DnaEncoder {
             }
         }
 
-        let res_table = lua_context.create_table().unwrap();
-
-        res_table.set("usedNormalNodeCount", allocated_normal_nodes).unwrap();
-        res_table.set("usedAscendancyNodeCount", allocated_ascend_nodes).unwrap();
-
         // restore buffers
         std::mem::swap(&mut queue_indexes, &mut self.queue_indexes_buffer);
 
-        res_table
+        DnaConvertResult {
+            allocated_normal_nodes,
+            allocated_ascend_nodes
+        }
     }
 
     // Perform a breadth-first search of the tree, starting from this node, and determine if it is the closest node to any other nodes
@@ -317,22 +333,7 @@ impl DnaEncoder {
 impl UserData for DnaEncoder {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method_mut("ConvertDnaToBuild", |lua_context, this, (build_table, dna, max_number_normal_nodes_to_allocate, max_number_ascend_nodes_to_allocate): (LuaTable, LuaDna, usize, usize)| {
-            Ok(this.convert_dna_to_build(lua_context, build_table, dna.reference.borrow(), max_number_normal_nodes_to_allocate, max_number_ascend_nodes_to_allocate))
-        });
-
-        methods.add_method_mut("ConvertDnaCommandHandlerToBuild", |lua_context, this,
-                                                                   (build_table, dna_command, max_number_normal_nodes_to_allocate, max_number_ascend_nodes_to_allocate): (LuaTable, LuaDnaCommand, usize, usize)| {
-            let dna_command = dna_command.reference.deref();
-
-            Ok(match dna_command.borrow().as_ref() {
-               Some(dna_command) => {
-                   match &dna_command.dna {
-                       None => panic!("Dna is not exists in dna command"),
-                       Some(dna) => this.convert_dna_to_build(lua_context, build_table, dna, max_number_normal_nodes_to_allocate, max_number_ascend_nodes_to_allocate)
-                   }
-               },
-               None => panic!("Dna command is not exists in handler")
-            })
+            Ok(this.convert_dna_to_build(&build_table, dna.reference.borrow(), max_number_normal_nodes_to_allocate, max_number_ascend_nodes_to_allocate).get_table(lua_context))
         });
 
         methods.add_method("GetTreeNodesCount", |_lua_context, this, ()| {
@@ -382,7 +383,12 @@ struct MasteryEffect
     id: i64
 }
 
-pub fn create_dna_encoder(_: &Lua, build_table: LuaTable) -> LuaResult<DnaEncoder>
+pub fn lua_create_dna_encoder(_: &Lua, build_table: LuaTable) -> LuaResult<DnaEncoder>
+{
+    Ok(create_dna_encoder(&build_table))
+}
+
+pub fn create_dna_encoder(build_table: &LuaTable) -> DnaEncoder
 {
     let spec_table: LuaTable = build_table.get("spec").unwrap();
 
@@ -557,11 +563,11 @@ pub fn create_dna_encoder(_: &Lua, build_table: LuaTable) -> LuaResult<DnaEncode
 
     let tree_nodes_len = tree_nodes.len().clone();
 
-    Ok(DnaEncoder {
+    DnaEncoder {
         tree_nodes,
         masteries,
         path_indexes_buf: Vec::with_capacity(1000),
         index_nodes_to_allocate: HashSet::with_capacity(tree_nodes_len),
         queue_indexes_buffer: Vec::with_capacity(tree_nodes_len)
-    })
+    }
 }

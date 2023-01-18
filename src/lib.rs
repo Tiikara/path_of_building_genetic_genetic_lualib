@@ -7,6 +7,7 @@ mod lua_module;
 mod dna_encoder;
 mod dna_cache_fitness;
 mod targets;
+mod fitness_function_calculator;
 
 #[cfg(test)]
 mod tests {

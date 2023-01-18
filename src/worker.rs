@@ -2,11 +2,12 @@ use std::borrow::{BorrowMut};
 use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, LockResult, RwLock};
 use crossbeam::channel::{Receiver, Sender};
 use mlua::{Function, Lua, LuaOptions, StdLib, UserData};
-use mlua::prelude::{LuaMultiValue, LuaResult, LuaString, LuaTable};
-use crate::dna_encoder::create_dna_encoder;
+use mlua::prelude::{LuaMultiValue, LuaResult, LuaString, LuaTable, LuaValue};
+use crate::dna_encoder::{create_dna_encoder, DnaEncoder};
+use crate::fitness_function_calculator::FitnessFunctionCalculator;
 
 use crate::genetic::{DnaCommand, Session};
 use crate::targets::create_tables_from_targets;
@@ -26,60 +27,6 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
 )
 {
     let lua = Lua::new_with(StdLib::ALL_SAFE, LuaOptions::default()).unwrap();
-
-    let worker_reader_dna_queue_channel = reader_dna_queue_channel.clone();
-    let worker_receive_next_command_func = lua.create_function(move |lua_context, (): ()| {
-        let dna_command = worker_reader_dna_queue_channel.recv().unwrap();
-
-        let res_table = lua_context.create_table().unwrap();
-
-        res_table.set("handler", LuaDnaCommand { reference: Rc::new(RefCell::new(Some(dna_command))) }).unwrap();
-
-        Ok(res_table)
-    }).unwrap();
-
-    let worker_set_result_func = lua.create_function(move |_lua_context, (mut dna_command, fitness_score): (LuaDnaCommand, f64)| {
-        let dna_command = dna_command.reference.borrow_mut();
-
-        let mut dna_command = dna_command.take().unwrap();
-
-        match &mut dna_command.dna
-        {
-            Some(dna) => dna.fitness_score = fitness_score,
-            None => panic!("Dna is not present in dna command")
-        }
-
-        writer_dna_result_queue_channel.send(dna_command).unwrap();
-
-        Ok(())
-    }).unwrap();
-
-    let get_session_session = session.clone();
-    let worker_get_session_number_func = lua.create_function(move |_lua_context, (): ()| {
-        Ok(get_session_session.read().unwrap().number)
-    }).unwrap();
-
-    let worker_get_session_parameters_func = lua.create_function(move |lua_context, (): ()| {
-
-        let (target_normal_nodes_count, target_ascendancy_nodes_count, targets_table, maximizes_table) =
-            {
-                let session = session.read().unwrap();
-
-                let (targets_table, maximizes_table) = create_tables_from_targets(lua_context, &session.targets);
-
-                (session.target_normal_nodes_count, session.target_ascendancy_nodes_count, targets_table, maximizes_table)
-            };
-
-        let res_table = lua_context.create_table().unwrap();
-
-        res_table.set("targetNormalNodesCount", target_normal_nodes_count).unwrap();
-        res_table.set("targetAscendancyNodesCount", target_ascendancy_nodes_count).unwrap();
-
-        res_table.set("targetStats", targets_table).unwrap();
-        res_table.set("maximizeStats", maximizes_table).unwrap();
-
-        Ok(res_table)
-    }).unwrap();
 
     let globals = lua.globals();
 
@@ -102,23 +49,92 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
 
     std_io_table.set("open", working_dir_io).unwrap();
 
-    globals.set("GeneticWorkerReceiveNextCommand", worker_receive_next_command_func).unwrap();
-    globals.set("GeneticWorkerSetResultToHandler", worker_set_result_func).unwrap();
-
-    globals.set("GeneticWorkerGetSessionNumber", worker_get_session_number_func).unwrap();
-    globals.set("GeneticWorkerGetSessionParameters", worker_get_session_parameters_func).unwrap();
-
-    globals.set("GeneticWorkerCreateDnaEncoder", lua.create_function(create_dna_encoder).unwrap()).unwrap();
-
     globals.set("ScriptAbsoluteWorkingDir", working_dir).unwrap();
 
     lua.load(&fs::read_to_string(String::from(working_dir) + "Classes/GeneticSolverWorker.lua").unwrap())
         .exec()
         .unwrap();
 
-    lua.load(r#"
-        GeneticSolverWorker()
-    "#)
-        .exec()
-        .unwrap();
+    let mut stored_session_number = 0;
+
+    let lua_build: LuaTable = globals.get("build").unwrap();
+
+    let calculate_stats_func = globals.get::<&str, Function>("GeneticWorkerCalculateStats").unwrap();
+    let init_session_func = globals.get::<&str, Function>("GeneticWorkerInitializeSession").unwrap();
+
+    loop {
+        let dna_command = reader_dna_queue_channel.recv().unwrap();
+
+        let (target_normal_nodes_count, target_ascendancy_nodes_count, mut dna_encoder, mut fitness_function_calculator) =
+        {
+            let session = session.read().unwrap();
+
+            if session.number == stored_session_number
+            {
+                panic!("Session is not started. But command received :(")
+            }
+
+            let _: LuaValue = init_session_func.call(()).unwrap();
+
+            stored_session_number = session.number;
+
+            let target_normal_nodes_count = session.target_normal_nodes_count;
+            let target_ascendancy_nodes_count = session.target_ascendancy_nodes_count;
+
+            let dna_encoder = create_dna_encoder(&lua_build);
+
+            let fitness_function_calculator =
+                FitnessFunctionCalculator::new(
+                    target_normal_nodes_count,
+                    target_ascendancy_nodes_count,
+                    session.targets.clone()
+                );
+
+            (target_normal_nodes_count, target_ascendancy_nodes_count, dna_encoder, fitness_function_calculator)
+        };
+
+        let dna_convert_result = dna_encoder.convert_dna_to_build(&lua_build,
+                                         dna_command.dna.as_ref().unwrap(),
+                                         target_normal_nodes_count,
+                                         target_ascendancy_nodes_count);
+
+        let stats_env: LuaTable = calculate_stats_func.call(()).unwrap();
+
+        let fitness_score = fitness_function_calculator.calculate_and_get_fitness_score(
+            &stats_env,
+            dna_convert_result.allocated_normal_nodes,
+            dna_convert_result.allocated_ascend_nodes
+        );
+
+        worker_send_result(&writer_dna_result_queue_channel, dna_command, fitness_score);
+
+        loop {
+            let dna_command = reader_dna_queue_channel.recv().unwrap();
+
+            let dna_convert_result = dna_encoder.convert_dna_to_build(&lua_build,
+                                                                      dna_command.dna.as_ref().unwrap(),
+                                                                      target_normal_nodes_count,
+                                                                      target_ascendancy_nodes_count);
+
+            let stats_env: LuaTable = calculate_stats_func.call(()).unwrap();
+
+            let fitness_score = fitness_function_calculator.calculate_and_get_fitness_score(
+                &stats_env,
+                dna_convert_result.allocated_normal_nodes,
+                dna_convert_result.allocated_ascend_nodes
+            );
+
+            worker_send_result(&writer_dna_result_queue_channel, dna_command, fitness_score);
+        }
+    }
+}
+
+fn worker_send_result(writer_dna_result_queue_channel: &Sender<Box<DnaCommand>>, mut dna_command: Box<DnaCommand>, fitness_score: f64) {
+    match &mut dna_command.dna
+    {
+        Some(dna) => dna.fitness_score = fitness_score,
+        None => panic!("Dna is not present in dna command")
+    }
+
+    writer_dna_result_queue_channel.send(dna_command).unwrap();
 }
