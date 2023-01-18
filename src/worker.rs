@@ -6,6 +6,7 @@ use std::sync::{Arc, LockResult, RwLock};
 use crossbeam::channel::{Receiver, Sender};
 use mlua::{Function, Lua, LuaOptions, StdLib, UserData};
 use mlua::prelude::{LuaMultiValue, LuaResult, LuaString, LuaTable, LuaValue};
+use crate::dna::Dna;
 use crate::dna_encoder::{create_dna_encoder, DnaEncoder};
 use crate::fitness_function_calculator::FitnessFunctionCalculator;
 
@@ -19,6 +20,14 @@ pub struct LuaDnaCommand
 }
 
 impl UserData for LuaDnaCommand {}
+
+struct SessionProcessRuntime
+{
+    target_normal_nodes_count: usize,
+    target_ascendancy_nodes_count: usize,
+    dna_encoder: DnaEncoder,
+    fitness_function_calculator: FitnessFunctionCalculator
+}
 
 pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
                    writer_dna_result_queue_channel: Sender<Box<DnaCommand>>,
@@ -62,70 +71,63 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
     let calculate_stats_func = globals.get::<&str, Function>("GeneticWorkerCalculateStats").unwrap();
     let init_session_func = globals.get::<&str, Function>("GeneticWorkerInitializeSession").unwrap();
 
+    let mut session_process_runtime: Option<Box<SessionProcessRuntime>> = None;
+
     loop {
         let dna_command = reader_dna_queue_channel.recv().unwrap();
 
-        let (target_normal_nodes_count, target_ascendancy_nodes_count, mut dna_encoder, mut fitness_function_calculator) =
         {
             let session = session.read().unwrap();
 
-            if session.number == stored_session_number
+            if session.number != stored_session_number
             {
-                panic!("Session is not started. But command received :(")
-            }
+                let _: LuaValue = init_session_func.call(()).unwrap();
 
-            let _: LuaValue = init_session_func.call(()).unwrap();
+                stored_session_number = session.number;
 
-            stored_session_number = session.number;
+                let target_normal_nodes_count = session.target_normal_nodes_count;
+                let target_ascendancy_nodes_count = session.target_ascendancy_nodes_count;
 
-            let target_normal_nodes_count = session.target_normal_nodes_count;
-            let target_ascendancy_nodes_count = session.target_ascendancy_nodes_count;
+                let dna_encoder = create_dna_encoder(&lua_build);
 
-            let dna_encoder = create_dna_encoder(&lua_build);
+                let fitness_function_calculator =
+                    FitnessFunctionCalculator::new(
+                        target_normal_nodes_count,
+                        target_ascendancy_nodes_count,
+                        session.targets.clone()
+                    );
 
-            let fitness_function_calculator =
-                FitnessFunctionCalculator::new(
-                    target_normal_nodes_count,
-                    target_ascendancy_nodes_count,
-                    session.targets.clone()
+                session_process_runtime = Some(
+                    Box::new(SessionProcessRuntime {
+                        target_normal_nodes_count,
+                        target_ascendancy_nodes_count,
+                        dna_encoder,
+                        fitness_function_calculator,
+                    })
                 );
-
-            (target_normal_nodes_count, target_ascendancy_nodes_count, dna_encoder, fitness_function_calculator)
+            }
         };
 
-        let dna_convert_result = dna_encoder.convert_dna_to_build(&lua_build,
-                                         dna_command.dna.as_ref().unwrap(),
-                                         target_normal_nodes_count,
-                                         target_ascendancy_nodes_count);
+        let mut iteration_session_runtime = session_process_runtime.take().unwrap();
+
+        let dna_convert_result =
+            iteration_session_runtime.dna_encoder.convert_dna_to_build(
+                &lua_build,
+                dna_command.dna.as_ref().unwrap(),
+                iteration_session_runtime.target_normal_nodes_count,
+                iteration_session_runtime.target_ascendancy_nodes_count);
 
         let stats_env: LuaTable = calculate_stats_func.call(()).unwrap();
 
-        let fitness_score = fitness_function_calculator.calculate_and_get_fitness_score(
+        let fitness_score = iteration_session_runtime.fitness_function_calculator.calculate_and_get_fitness_score(
             &stats_env,
             dna_convert_result.allocated_normal_nodes,
             dna_convert_result.allocated_ascend_nodes
         );
 
+        session_process_runtime = Some(iteration_session_runtime);
+
         worker_send_result(&writer_dna_result_queue_channel, dna_command, fitness_score);
-
-        loop {
-            let dna_command = reader_dna_queue_channel.recv().unwrap();
-
-            let dna_convert_result = dna_encoder.convert_dna_to_build(&lua_build,
-                                                                      dna_command.dna.as_ref().unwrap(),
-                                                                      target_normal_nodes_count,
-                                                                      target_ascendancy_nodes_count);
-
-            let stats_env: LuaTable = calculate_stats_func.call(()).unwrap();
-
-            let fitness_score = fitness_function_calculator.calculate_and_get_fitness_score(
-                &stats_env,
-                dna_convert_result.allocated_normal_nodes,
-                dna_convert_result.allocated_ascend_nodes
-            );
-
-            worker_send_result(&writer_dna_result_queue_channel, dna_command, fitness_score);
-        }
     }
 }
 

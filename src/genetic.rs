@@ -180,6 +180,10 @@ impl UserData for LuaGeneticSolver {
                 this.is_received_stop_request.store(false, Ordering::SeqCst);
             }
 
+            // Drain all current messages from previous iterations
+            while this.reader_dna_queue_channel.try_recv().is_ok() {}
+            while this.reader_dna_result_queue_channel.try_recv().is_ok() {}
+
             let writer_dna_queue_channel = this.writer_dna_queue_channel.clone();
             let reader_dna_result_queue_channel = this.reader_dna_result_queue_channel.clone();
             let process_status = this.process_status.clone();
