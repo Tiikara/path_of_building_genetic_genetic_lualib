@@ -159,8 +159,20 @@ impl FitnessFunctionCalculator
         score
     }
 
-    fn calc_target_mul(&self, x: f64, weight: f64, target: f64, lower_is_better: bool) -> f64
+    fn calc_target_mul(&self, mut x: f64, weight: f64, mut target: f64, lower_is_better: bool) -> f64
     {
+        if x < 0.0
+        {
+            target -= x;
+            x = 0.0;
+        }
+
+        if target < 0.0
+        {
+            x -= target;
+            target = 0.0;
+        }
+
         let mut ratio =
             if lower_is_better
             {
