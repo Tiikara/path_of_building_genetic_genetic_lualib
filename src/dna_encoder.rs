@@ -129,7 +129,7 @@ impl DnaEncoder {
             {
                 let node = self.tree_nodes[index_node.clone()].borrow();
 
-                if smallest_node_index == usize::MAX || smallest_node_path_dist > node.path_dist
+                if smallest_node_index == usize::MAX || smallest_node_path_dist > node.path_dist || (smallest_node_path_dist == node.path_dist && smallest_node_index > *index_node)
                 {
                     smallest_node_path_dist = node.path_dist;
                     smallest_node_index = index_node.clone();
@@ -609,6 +609,13 @@ pub fn create_dna_encoder(build_table: &LuaTable) -> DnaEncoder
 
             node.linked_indexes.push(linked_node_index.clone());
         }
+
+        node.linked_indexes.sort_unstable_by(|a, b| {
+            let a = &tree_nodes[a.clone()].borrow();
+            let b = &tree_nodes[b.clone()].borrow();
+
+            b.borrow().id.cmp(&a.borrow().id)
+        });
     }
 
     let tree_nodes_len = tree_nodes.len().clone();
