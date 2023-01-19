@@ -416,7 +416,7 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
             let population_len = population.len();
             for dna in &mut population[..population_len]
             {
-                for _ in 0..eps_steps
+                for _ in 0..eps_steps * (dna.body_masteries.len() + dna.body_nodes.len())
                 {
                     dna.mutate(&mut rng);
                 }
