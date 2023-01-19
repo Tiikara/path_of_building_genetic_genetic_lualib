@@ -1,7 +1,7 @@
 use std::{env, thread};
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{JoinHandle};
 
 use crossbeam::channel::{Receiver, Sender, unbounded};
@@ -43,6 +43,8 @@ pub struct LuaGeneticSolver
     pub session: Arc<RwLock<Session>>,
     pub process_status: Arc<RwLock<ProcessStatus>>,
 
+    pub current_generation_number: Arc<AtomicU64>,
+
     pub workers_was_created: bool,
 
     pub main_thread: Option<JoinHandle<()>>,
@@ -58,6 +60,10 @@ impl UserData for LuaGeneticSolver {
 
         methods.add_method("GetBestDnaNumber", |_, this, ()| {
             Ok(this.process_status.read().unwrap().best_dna_number)
+        });
+
+        methods.add_method("GetCurrentGenerationNumber", |_, this, ()| {
+            Ok(this.current_generation_number.load(Ordering::SeqCst))
         });
 
         methods.add_method("GetBestDna", |_lua_context, this, ()| {
@@ -178,6 +184,8 @@ impl UserData for LuaGeneticSolver {
                 session_parameters.targets = create_targets_from_tables(targets_table, maximizes_table);
 
                 this.is_received_stop_request.store(false, Ordering::SeqCst);
+
+                this.current_generation_number.store(0, Ordering::SeqCst);
             }
 
             // Drain all current messages from previous iterations
@@ -188,11 +196,13 @@ impl UserData for LuaGeneticSolver {
             let reader_dna_result_queue_channel = this.reader_dna_result_queue_channel.clone();
             let process_status = this.process_status.clone();
             let is_received_stop_request = this.is_received_stop_request.clone();
+            let current_generation_number = this.current_generation_number.clone();
             let thread = thread::spawn(move || {
                 genetic_solve(writer_dna_queue_channel,
                               reader_dna_result_queue_channel,
                               process_status,
                               is_received_stop_request,
+                              current_generation_number,
                               max_generations_count,
                               stop_generations_eps,
                               count_generations_mutate_eps,
@@ -234,6 +244,7 @@ pub fn create_genetic_solver(_: &Lua, (): ()) -> LuaResult<LuaGeneticSolver> {
         main_thread: None,
         workers_was_created: false,
         is_received_stop_request: Arc::new(AtomicBool::new(false)),
+        current_generation_number: Arc::new(Default::default()),
     })
 }
 
@@ -241,6 +252,7 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
                      reader_dna_result_queue_channel: Receiver<Box<DnaCommand>>,
                      process_status: Arc<RwLock<ProcessStatus>>,
                      is_received_stop_request: Arc<AtomicBool>,
+                     current_generation_number: Arc<AtomicU64>,
                      max_generations_count: usize,
                      stop_generations_eps: usize,
                      count_generations_mutate_eps: usize,
@@ -291,6 +303,8 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
     let mut count_generations_with_best_population = 1;
 
     for _ in 1..=max_generations_count {
+        current_generation_number.store(current_generation_number.load(Ordering::SeqCst) + 1, Ordering::SeqCst);
+
         if is_received_stop_request.load(Ordering::SeqCst)
         {
             break;
