@@ -241,17 +241,26 @@ impl DnaEncoder {
 
                 if is_allocated
                 {
+                    let need_build_path =
+                        {
+                            let mut path_node = path_node.borrow_mut();
+
+                            let node_table: LuaTable = nodes_table.get(path_node.id).unwrap();
+                            node_table.set("alloc", true).unwrap();
+                            alloc_nodes_table.set(path_node.id, node_table).unwrap();
+
+                            path_node.alloc = true;
+
+                            match path_node.node_type {
+                                NodeType::MASTERY => false,
+                                _ => true
+                            }
+                        };
+
+                    if need_build_path
                     {
-                        let mut path_node = path_node.borrow_mut();
-
-                        let node_table: LuaTable = nodes_table.get(path_node.id).unwrap();
-                        node_table.set("alloc", true).unwrap();
-                        alloc_nodes_table.set(path_node.id, node_table).unwrap();
-
-                        path_node.alloc = true;
+                        self.build_path_from_node(&mut queue_indexes, path_node);
                     }
-
-                    self.build_path_from_node(&mut queue_indexes, path_node);
 
                     if is_ascend == false
                     {
@@ -304,7 +313,7 @@ impl DnaEncoder {
                 let mut other = self.tree_nodes[*linked_index].borrow_mut();
 
                 match other.node_type {
-                    NodeType::NORMAL | NodeType::MASTERY => {
+                    NodeType::NORMAL => {
                         if node.ascendancy_id == other.ascendancy_id || (cur_dist == 1 && other.ascendancy_id == usize::MAX)
                         {
                             if other.path_dist > cur_dist
@@ -326,8 +335,22 @@ impl DnaEncoder {
                             }
                         }
                     }
-                    NodeType::ClassStart => {}
-                    NodeType::AscendClassStart => {}
+                    NodeType::MASTERY => {
+                        if other.path_dist > cur_dist
+                        {
+                            other.path_dist = cur_dist;
+                            other.path_indexes.clear();
+
+                            let other_node_index = other.tree_node_index.clone();
+
+                            other.path_indexes.push(other_node_index);
+                            for node_path_index in node.path_indexes.iter()
+                            {
+                                other.path_indexes.push(node_path_index.clone())
+                            }
+                        }
+                    },
+                    _ => {}
                 }
             }
         }
