@@ -74,7 +74,7 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
     let mut session_process_runtime: Option<Box<SessionProcessRuntime>> = None;
 
     loop {
-        let dna_command = reader_dna_queue_channel.recv().unwrap();
+        let mut dna_command = reader_dna_queue_channel.recv().unwrap();
 
         {
             let session = session.read().unwrap();
@@ -113,7 +113,7 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
         let dna_convert_result =
             iteration_session_runtime.dna_encoder.convert_dna_to_build(
                 &lua_build,
-                dna_command.dna.as_ref().unwrap(),
+                dna_command.dna.as_mut().unwrap(),
                 iteration_session_runtime.target_normal_nodes_count,
                 iteration_session_runtime.target_ascendancy_nodes_count);
 

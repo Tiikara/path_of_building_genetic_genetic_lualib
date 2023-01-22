@@ -1,9 +1,9 @@
-use std::borrow::{Borrow};
+use std::borrow::{Borrow, BorrowMut};
 use std::cell::{RefCell};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use mlua::{Lua, TableExt, UserData, UserDataMethods};
 use mlua::prelude::{LuaResult, LuaString, LuaTable, LuaValue};
 use crate::dna::{Dna, LuaDna};
@@ -39,7 +39,7 @@ impl DnaConvertResult {
 }
 
 impl DnaEncoder {
-    pub fn convert_dna_to_build(&mut self, build_table: &LuaTable, dna: &Dna, max_number_normal_nodes_to_allocate: usize, max_number_ascend_nodes_to_allocate: usize) -> DnaConvertResult
+    pub fn convert_dna_to_build(&mut self, build_table: &LuaTable, dna: &mut Dna, max_number_normal_nodes_to_allocate: usize, max_number_ascend_nodes_to_allocate: usize) -> DnaConvertResult
     {
         let mut queue_indexes = Vec::new();
 
@@ -71,29 +71,6 @@ impl DnaEncoder {
             mastery.effects_indexes_to_select.clear();
         }
 
-        for node in self.tree_nodes.iter()
-        {
-            let is_allocated =
-                {
-                    node.borrow().alloc
-                };
-
-            if is_allocated
-            {
-                self.build_path_from_node(&mut queue_indexes, node);
-            }
-        }
-
-        self.index_nodes_to_allocate.clear();
-
-        for (tree_node_index, nucl) in dna.body_nodes.iter().enumerate()
-        {
-            if *nucl == 1
-            {
-                self.index_nodes_to_allocate.insert(tree_node_index);
-            }
-        }
-
         for (index, nucl) in dna.body_masteries.iter().enumerate()
         {
             if *nucl == 1
@@ -120,155 +97,102 @@ impl DnaEncoder {
 
         let mut allocated_normal_nodes = 0;
         let mut allocated_ascend_nodes = 0;
-        while self.index_nodes_to_allocate.is_empty() == false
+
+        for root in self.tree_nodes.iter()
         {
-            let mut smallest_node_index = usize::MAX;
-            let mut smallest_node_path_dist = 0;
-
-            for index_node in &self.index_nodes_to_allocate
-            {
-                let node = self.tree_nodes[index_node.clone()].borrow();
-
-                if smallest_node_index == usize::MAX || smallest_node_path_dist > node.path_dist || (smallest_node_path_dist == node.path_dist && smallest_node_index > *index_node)
-                {
-                    smallest_node_path_dist = node.path_dist;
-                    smallest_node_index = index_node.clone();
-                }
-            }
-
-            if smallest_node_index == usize::MAX
-            {
-                break;
-            }
-
-            self.index_nodes_to_allocate.remove(&smallest_node_index);
-
-            let node = &self.tree_nodes[smallest_node_index];
-
-            let has_path =
-                {
-                    let node = node.borrow();
-
-                    node.path_indexes.is_empty() == false
-                };
-
-            if has_path == false
-            {
-                continue;
-            }
-
-            let path_indexes = {
-                {
-                    let mut node = node.borrow_mut();
-
-                    std::mem::swap(&mut node.path_indexes, &mut self.path_indexes_buf);
-                }
-
-                self.path_indexes_buf.sort_unstable_by(|a, b| {
-                    let a = &self.tree_nodes[a.clone()].borrow();
-                    let b = &self.tree_nodes[b.clone()].borrow();
-
-                    a.path_dist.cmp(&b.path_dist)
-                });
-
-                &self.path_indexes_buf
+            let start_path = {
+                let node = root.borrow();
+                node.default_alloc
             };
 
-            for path_index in path_indexes
+            if start_path
             {
-                let path_node = &self.tree_nodes[path_index.clone()];
-
-                let (is_allocated, is_ascend) =
-                    {
-                        let mut path_node = path_node.borrow_mut();
-
-                        if path_node.alloc {
-                            continue;
-                        }
-
-                        if path_node.ascendancy_id == usize::MAX
-                        {
-                            if allocated_normal_nodes == max_number_normal_nodes_to_allocate {
-                                break;
-                            }
-                        }
-                        else
-                        {
-                            if allocated_ascend_nodes == max_number_ascend_nodes_to_allocate {
-                                break;
-                            }
-                        }
-
-                        let is_allocated =
-                            match path_node.node_type {
-                                NodeType::NORMAL => true,
-                                NodeType::MASTERY => {
-                                    let mut mastery = self.masteries[path_node.mastery_index].borrow_mut();
-
-                                    if mastery.effect_next_select_index < mastery.effects_indexes_to_select.len()
-                                    {
-                                        let effect_index = mastery.effects_indexes_to_select[mastery.effect_next_select_index];
-
-                                        let effect_id = mastery.effects[effect_index].id;
-
-                                        mastery_selections_table.set(path_node.id, effect_id).unwrap();
-
-                                        let effect_table: LuaTable = mastery_effects_table.get(effect_id).unwrap();
-
-                                        let lua_sd: LuaValue = effect_table.get("sd").unwrap();
-
-                                        let node_table: LuaTable = nodes_table.get(path_node.id).unwrap();
-
-                                        node_table.set("sd", lua_sd).unwrap();
-                                        node_table.set("allMasteryOptions", false).unwrap();
-
-                                        let _: LuaValue = tree_table.call_method("ProcessStats", node_table).unwrap();
-
-                                        mastery.effect_next_select_index += 1;
-
-                                        true
-                                    }
-                                    else
-                                    {
-                                        false
-                                    }
-                                },
-                                _ => false
-                            };
-
-                        (is_allocated, path_node.ascendancy_id != usize::MAX)
-                    };
-
-                if is_allocated
                 {
-                    let need_build_path =
+                    let mut root = root.borrow_mut();
+
+                    queue_indexes.clear();
+                    queue_indexes.push(root.tree_node_index);
+                }
+
+                let mut o = 0; // out
+                let mut i = 1; // in
+
+                while o < i
+                {
+                    let node = self.tree_nodes[queue_indexes[o.clone()]].borrow();
+
+                    o += 1;
+
+                    for (linked_index, linked_node_index) in node.linked_indexes.iter().enumerate()
+                    {
+                        let node_nucl = dna.body_node_edges[node.tree_node_index * 10 + linked_index];
+
+                        if node_nucl == 1
                         {
-                            let mut path_node = path_node.borrow_mut();
+                            let mut other = self.tree_nodes[*linked_node_index].borrow_mut();
 
-                            let node_table: LuaTable = nodes_table.get(path_node.id).unwrap();
-                            node_table.set("alloc", true).unwrap();
-                            alloc_nodes_table.set(path_node.id, node_table).unwrap();
+                            if other.ascendancy_id == usize::MAX
+                            {
+                                if allocated_normal_nodes == max_number_normal_nodes_to_allocate
+                                {
+                                    continue;
+                                }
 
-                            path_node.alloc = true;
-
-                            match path_node.node_type {
-                                NodeType::MASTERY => false,
-                                _ => true
+                                allocated_normal_nodes += 1;
                             }
-                        };
+                            else
+                            {
+                                if allocated_ascend_nodes == max_number_ascend_nodes_to_allocate
+                                {
+                                    continue;
+                                }
 
-                    if need_build_path
-                    {
-                        self.build_path_from_node(&mut queue_indexes, path_node);
-                    }
+                                allocated_ascend_nodes += 1;
+                            }
 
-                    if is_ascend == false
-                    {
-                        allocated_normal_nodes += 1;
-                    }
-                    else
-                    {
-                        allocated_ascend_nodes += 1;
+                            if other.alloc == false
+                            {
+                                other.alloc = true;
+
+                                let node_table: LuaTable = nodes_table.get(other.id).unwrap();
+                                node_table.set("alloc", true).unwrap();
+                                alloc_nodes_table.set(other.id, node_table).unwrap();
+
+                                match other.node_type {
+                                    NodeType::NORMAL => {
+                                        queue_indexes.push(other.tree_node_index);
+
+                                        i += 1;
+                                    },
+                                    NodeType::MASTERY => {
+                                        let mut mastery = self.masteries[other.mastery_index].borrow_mut();
+
+                                        if mastery.effect_next_select_index < mastery.effects_indexes_to_select.len()
+                                        {
+                                            let effect_index = mastery.effects_indexes_to_select[mastery.effect_next_select_index];
+
+                                            let effect_id = mastery.effects[effect_index].id;
+
+                                            mastery_selections_table.set(other.id, effect_id).unwrap();
+
+                                            let effect_table: LuaTable = mastery_effects_table.get(effect_id).unwrap();
+
+                                            let lua_sd: LuaValue = effect_table.get("sd").unwrap();
+
+                                            let node_table: LuaTable = nodes_table.get(other.id).unwrap();
+
+                                            node_table.set("sd", lua_sd).unwrap();
+                                            node_table.set("allMasteryOptions", false).unwrap();
+
+                                            let _: LuaValue = tree_table.call_method("ProcessStats", node_table).unwrap();
+
+                                            mastery.effect_next_select_index += 1;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -359,8 +283,12 @@ impl DnaEncoder {
 
 impl UserData for DnaEncoder {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method_mut("ConvertDnaToBuild", |lua_context, this, (build_table, dna, max_number_normal_nodes_to_allocate, max_number_ascend_nodes_to_allocate): (LuaTable, LuaDna, usize, usize)| {
-            Ok(this.convert_dna_to_build(&build_table, dna.reference.borrow(), max_number_normal_nodes_to_allocate, max_number_ascend_nodes_to_allocate).get_table(lua_context))
+        methods.add_method_mut("ConvertDnaToBuild", |lua_context, this, (build_table, mut dna, max_number_normal_nodes_to_allocate, max_number_ascend_nodes_to_allocate): (LuaTable, LuaDna, usize, usize)| {
+
+            let mut dna = Dna {
+                reference: dna.reference.deref().reference.clone()
+            };
+            Ok(this.convert_dna_to_build(&build_table, &mut dna, max_number_normal_nodes_to_allocate, max_number_ascend_nodes_to_allocate).get_table(lua_context))
         });
 
         methods.add_method("GetTreeNodesCount", |_lua_context, this, ()| {
