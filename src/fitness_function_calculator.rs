@@ -104,18 +104,27 @@ impl FitnessFunctionCalculator
         score *=
             match player_output_table.get::<&str, Option<f64>>("ManaPerSecondCost").unwrap() {
                 None => {
-                    MIN_TARGET_MULTIPLIER * MIN_TARGET_MULTIPLIER
+                    MIN_TARGET_MULTIPLIER
                 },
                 Some(mana_per_second_cost) => {
-                    self.calc_target_mul(mana_recovery_sum, 1.0, mana_per_second_cost, false) *
-                        match player_output_table.get::<&str, Option<f64>>("ManaUnreserved").unwrap() {
-                            None => {
-                                MIN_TARGET_MULTIPLIER
-                            },
-                            Some(unreserved_mana) => {
-                                self.calc_target_mul(unreserved_mana, 1.0, mana_per_second_cost, false)
-                            }
+                    self.calc_target_mul(mana_recovery_sum, 1.0, mana_per_second_cost, false)
+                }
+            };
+
+        score *=
+            match player_output_table.get::<&str, Option<f64>>("ManaUnreserved").unwrap() {
+                None => {
+                    MIN_TARGET_MULTIPLIER
+                },
+                Some(unreserved_mana) => {
+                    match player_output_table.get::<&str, Option<f64>>("ManaCost").unwrap() {
+                        None => {
+                            MIN_TARGET_MULTIPLIER
+                        },
+                        Some(mana_cost) => {
+                            self.calc_target_mul(unreserved_mana, 1.0, mana_cost, false)
                         }
+                    }
                 }
             };
 
