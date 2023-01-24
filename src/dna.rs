@@ -3,7 +3,8 @@ use std::rc::Rc;
 use mlua::UserData;
 use rand::Rng;
 use rand::rngs::ThreadRng;
-use rand_distr::{Normal, Distribution};
+use crate::adjust_space::AdjustSpace;
+use crate::dna_encoder::{DnaEncoder};
 
 const MAX_MUTATE_CLUSTER_SIZE: usize = 4;
 
@@ -30,22 +31,22 @@ impl<'a> DerefMut for Dna {
 
 #[derive(Clone)]
 pub struct DnaData {
-    pub body_node_edges: Vec<u8>,
+    pub body_node_adj: Vec<u8>,
     pub body_masteries: Vec<u8>,
     pub fitness_score: f64
 }
 
 impl DnaData {
-    pub(crate) fn new(tree_nodes_count: usize, mastery_count: usize) -> DnaData {
+    pub(crate) fn new(adjust_space: &AdjustSpace, mastery_count: usize) -> DnaData {
         DnaData {
-            body_node_edges: vec![0; tree_nodes_count * 10],
+            body_node_adj: adjust_space.allocate_vector_data(),
             body_masteries: vec![0; mastery_count * 6],
             fitness_score: -1.0
         }
     }
 
     fn init(&mut self) {
-        for item in &mut self.body_node_edges { *item = 0; }
+        for item in &mut self.body_node_adj { *item = 0; }
         for item in &mut self.body_masteries { *item = 0; }
         self.fitness_score = -1.0;
     }
@@ -65,7 +66,7 @@ impl Dna {
     pub fn clone(&self, dna_data_allocator: &mut Vec<Box<DnaData>>) -> Dna {
         let mut dna_data = dna_data_allocator.pop().unwrap();
 
-        dna_data.body_node_edges[..self.body_node_edges.len()].clone_from_slice(&self.body_node_edges[..self.body_node_edges.len()]);
+        dna_data.body_node_adj[..self.body_node_adj.len()].clone_from_slice(&self.body_node_adj[..self.body_node_adj.len()]);
         dna_data.body_masteries[..self.body_masteries.len()].clone_from_slice(&self.body_masteries[..self.body_masteries.len()]);
         dna_data.fitness_score = self.fitness_score;
 
@@ -74,25 +75,12 @@ impl Dna {
         }
     }
 
-    pub fn mutate(&mut self, rng: &mut ThreadRng, distr: Normal<f64>) {
+    pub fn mutate(&mut self, rng: &mut ThreadRng, dna_encoder: &mut DnaEncoder, max_number_normal_nodes_to_allocate: usize, max_number_ascend_nodes_to_allocate: usize) {
         // Mutate nodes
-        let len = self.body_node_edges.len() as f64;
-        for nucl in &mut self.body_node_edges
-        {
-            let r = rng.gen_range(0.0..1.0);
-
-            if r < 0.1
-            {
-                if *nucl == 1
-                {
-                    *nucl = 0;
-                }
-                else
-                {
-                    *nucl = 1;
-                }
-            }
-        }
+        dna_encoder.mutate_node_edges_from_dna(rng,
+                                               self,
+                                               max_number_normal_nodes_to_allocate,
+                                               max_number_ascend_nodes_to_allocate);
 
         // Mutate masteries
         let mutate_cluster_size = 1;
@@ -113,8 +101,8 @@ impl Dna {
     }
 
     pub fn combine(&self, dna_data_allocator: &mut Vec<Box<DnaData>>, dna2: &Dna, rng: &mut ThreadRng) -> Dna {
-        let crossover_body_start: usize = rng.gen_range(0..self.body_node_edges.len());
-        let crossover_body_end: usize = rng.gen_range(0..self.body_node_edges.len());
+        let crossover_body_start: usize = rng.gen_range(0..self.body_node_adj.len());
+        let crossover_body_end: usize = rng.gen_range(0..self.body_node_adj.len());
 
         let crossover_masteries_start: usize = rng.gen_range(0..self.body_masteries.len());
         let crossover_masteries_end: usize = rng.gen_range(crossover_masteries_start..self.body_masteries.len());
@@ -147,7 +135,7 @@ impl Dna {
     {
         let mut new_dna = dna1.clone(dna_data_allocator);
 
-        new_dna.body_node_edges[range_body_nodes.clone()].clone_from_slice(&dna2.body_node_edges[range_body_nodes]);
+        new_dna.body_node_adj[range_body_nodes.clone()].clone_from_slice(&dna2.body_node_adj[range_body_nodes]);
         new_dna.body_masteries[range_masteries_nodes.clone()].clone_from_slice(&dna2.body_masteries[range_masteries_nodes]);
 
         new_dna

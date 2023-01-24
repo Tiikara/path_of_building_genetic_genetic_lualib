@@ -6,6 +6,10 @@ use std::io::Write;
 use std::ops::{Deref, DerefMut};
 use mlua::{Lua, TableExt, UserData, UserDataMethods};
 use mlua::prelude::{LuaResult, LuaString, LuaTable, LuaValue};
+use rand::prelude::{SliceRandom, ThreadRng};
+use rand::Rng;
+use rand_distr::{Normal, Distribution};
+use crate::adjust_space::AdjustSpace;
 use crate::dna::{Dna, LuaDna};
 
 use crate::worker::LuaDnaCommand;
@@ -15,8 +19,7 @@ pub struct DnaEncoder
     tree_nodes: Vec<RefCell<Node>>,
     masteries: Vec<RefCell<Mastery>>,
 
-    path_indexes_buf: Vec<usize>,
-    index_nodes_to_allocate: HashSet<usize>,
+    pub adjust_space: AdjustSpace,
     queue_indexes_buffer: Vec<usize>
 }
 
@@ -38,7 +41,366 @@ impl DnaConvertResult {
     }
 }
 
+struct Path
+{
+    items: Vec<PathItemInfo>,
+    self_depends_path_index: usize,
+    depends_from_this_path_index_count: usize
+}
+
+struct PathItemInfo
+{
+    from_node_index: usize,
+    to_node_index: usize,
+    linked_index: usize
+}
+
 impl DnaEncoder {
+    pub fn mutate_node_edges_from_dna(&mut self, rng: &mut ThreadRng, dna: &mut Dna, max_number_normal_nodes_to_allocate: usize, max_number_ascend_nodes_to_allocate: usize)
+    {
+        let mut queue_indexes = Vec::new();
+
+        std::mem::swap(&mut queue_indexes, &mut self.queue_indexes_buffer);
+
+        for (_node_index, node) in self.tree_nodes.iter().enumerate()
+        {
+            let mut node = node.borrow_mut();
+
+            node.alloc = node.default_alloc;
+            node.path_index = usize::MAX;
+        }
+
+        let mut allocated_normal_nodes = 0;
+        let mut allocated_ascend_nodes = 0;
+
+        let mut pathes = Vec::new();
+
+        for root in self.tree_nodes.iter()
+        {
+            let start_path = {
+                let node = root.borrow();
+                node.default_alloc
+            };
+
+            if start_path
+            {
+                {
+                    let mut root = root.borrow_mut();
+
+                    queue_indexes.clear();
+                    queue_indexes.push(root.tree_node_index);
+                }
+
+                let mut o = 0; // out
+                let mut i = 1; // in
+
+                while o < i
+                {
+                    let mut node = self.tree_nodes[queue_indexes[o.clone()]].borrow_mut();
+
+                    o += 1;
+
+                    let mut allocated_nodes_indexes = Vec::new();
+                    let mut allocated_node_links = Vec::new();
+
+                    for (linked_index, linked_node_index) in node.linked_indexes.iter().enumerate()
+                    {
+                        let node_nucl = self.adjust_space.get_adjust_value_from_data(
+                            &dna.body_node_adj,
+                            node.tree_node_index,
+                            *linked_node_index
+                        );
+
+                        if node_nucl == 1
+                        {
+                            let mut other = self.tree_nodes[*linked_node_index].borrow_mut();
+
+                            if other.alloc == false
+                            {
+                                if other.ascendancy_id == usize::MAX
+                                {
+                                    if allocated_normal_nodes == max_number_normal_nodes_to_allocate
+                                    {
+                                        break;
+                                    }
+
+                                    allocated_normal_nodes += 1;
+                                }
+                                else
+                                {
+                                    if allocated_ascend_nodes == max_number_ascend_nodes_to_allocate
+                                    {
+                                        break;
+                                    }
+
+                                    allocated_ascend_nodes += 1;
+                                }
+
+
+                                other.alloc = true;
+
+                                queue_indexes.push(other.tree_node_index);
+
+                                i += 1;
+
+                                allocated_nodes_indexes.push(other.tree_node_index);
+                                allocated_node_links.push(linked_index);
+                            }
+                        }
+                    }
+
+                    if allocated_nodes_indexes.len() == 1
+                    {
+                        let allocated_node_index = allocated_nodes_indexes.pop().unwrap();
+                        let allocated_linked_index = allocated_node_links.pop().unwrap();
+
+                        if node.path_index == usize::MAX
+                        {
+                            let mut allocated_node = self.tree_nodes[allocated_node_index].borrow_mut();
+                            allocated_node.path_index = pathes.len();
+
+                            let mut path_items = Vec::new();
+                            path_items.push(PathItemInfo {
+                                from_node_index: node.tree_node_index,
+                                to_node_index: allocated_node_index,
+                                linked_index: allocated_linked_index,
+                            });
+                            pathes.push(Path {
+                                items: path_items,
+                                depends_from_this_path_index_count: 0,
+                                self_depends_path_index: usize::MAX
+                            });
+                        }
+                        else
+                        {
+                            pathes[node.path_index].items.push(PathItemInfo {
+                                from_node_index: node.tree_node_index,
+                                to_node_index: allocated_node_index,
+                                linked_index: allocated_linked_index,
+                            });
+                        }
+                    }
+                    else
+                    {
+                        for (allocated_index, allocated_node_index) in allocated_nodes_indexes.iter().enumerate()
+                        {
+                            let allocated_linked_index = allocated_node_links[allocated_index];
+
+                            let mut allocated_node = self.tree_nodes[*allocated_node_index].borrow_mut();
+                            allocated_node.path_index = pathes.len();
+
+                            let mut path_items = Vec::new();
+                            path_items.push(PathItemInfo {
+                                from_node_index: node.tree_node_index,
+                                to_node_index: *allocated_node_index,
+                                linked_index: allocated_linked_index,
+                            });
+                            pathes.push(Path {
+                                items: path_items,
+                                depends_from_this_path_index_count: 0,
+                                self_depends_path_index: node.path_index
+                            });
+
+                            if node.path_index != usize::MAX
+                            {
+                                let node_path = &mut pathes[node.path_index];
+                                node_path.depends_from_this_path_index_count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let target_count_add_new_nodes = rng.gen_range(1..=max_number_normal_nodes_to_allocate);
+        let mut count_added_nodes = 0;
+
+        while target_count_add_new_nodes != count_added_nodes
+        {
+            if pathes.len() == 0
+            {
+                break;
+            }
+
+            let node_index = {
+                let path_index = rng.gen_range(0..pathes.len());
+
+                let path = &mut pathes[path_index];
+
+                path.items.last().unwrap().to_node_index
+            };
+
+            let node  = self.tree_nodes[node_index].borrow();
+
+            if node.linked_indexes.len() == 0
+            {
+                continue
+            }
+
+            let linked_index = rng.gen_range(0..node.linked_indexes.len());
+            let linked_node_index = node.linked_indexes[linked_index];
+
+            let mut linked_node = self.tree_nodes[linked_node_index].borrow_mut();
+
+            if linked_node.alloc == false
+            {
+                linked_node.alloc = true;
+                linked_node.path_index = pathes.len();
+
+                let mut path_items = Vec::new();
+                path_items.push(PathItemInfo {
+                    from_node_index: node.tree_node_index,
+                    to_node_index: linked_node_index,
+                    linked_index: linked_index,
+                });
+                pathes.push(Path {
+                    items: path_items,
+                    depends_from_this_path_index_count: 0,
+                    self_depends_path_index: node.path_index
+                });
+
+                if node.path_index != usize::MAX
+                {
+                    let node_path = &mut pathes[node.path_index];
+                    node_path.depends_from_this_path_index_count += 1;
+                }
+
+                self.adjust_space.set_adjust_value_to_data(
+                    &mut dna.body_node_adj,
+                    node.tree_node_index,
+                    linked_node_index,
+                    1
+                );
+
+                count_added_nodes += 1;
+                allocated_normal_nodes += 1;
+            }
+        }
+
+        if allocated_normal_nodes < max_number_normal_nodes_to_allocate
+        {
+            let start_index =
+                if pathes.len() > 0
+                {
+                    pathes.last().unwrap().items.last().unwrap().to_node_index
+                }
+                else
+                {
+                    let mut start_index = usize::MAX;
+                    for root in self.tree_nodes.iter()
+                    {
+                        let node = root.borrow();
+                        if node.default_alloc && node.ascendancy_id == usize::MAX
+                        {
+                            start_index = node.tree_node_index;
+                            break;
+                        }
+                    }
+                    start_index
+                };
+
+            let root = &self.tree_nodes[start_index];
+
+            {
+                let mut root = root.borrow_mut();
+
+                queue_indexes.clear();
+                queue_indexes.push(root.tree_node_index);
+            }
+
+            let mut o = 0; // out
+            let mut i = 1; // in
+
+            while o < i
+            {
+                let node = self.tree_nodes[queue_indexes[o.clone()]].borrow();
+
+                o += 1;
+
+                for (_linked_index, linked_node_index) in node.linked_indexes.iter().enumerate()
+                {
+                    let mut other = self.tree_nodes[*linked_node_index].borrow_mut();
+
+                    if other.ascendancy_id == usize::MAX
+                    {
+                        if allocated_normal_nodes == max_number_normal_nodes_to_allocate
+                        {
+                            break;
+                        }
+
+                        allocated_normal_nodes += 1;
+                    }
+                    else
+                    {
+                        if allocated_ascend_nodes == max_number_ascend_nodes_to_allocate
+                        {
+                            break;
+                        }
+
+                        allocated_ascend_nodes += 1;
+                    }
+
+                    if other.alloc == false
+                    {
+                        other.alloc = true;
+                        self.adjust_space.set_adjust_value_to_data(
+                            &mut dna.body_node_adj,
+                            node.tree_node_index,
+                            *linked_node_index,
+                            1
+                        );
+
+                        queue_indexes.push(other.tree_node_index);
+
+                        i += 1;
+                    }
+                }
+            }
+        }
+
+        while allocated_normal_nodes > max_number_normal_nodes_to_allocate
+        {
+            let (items_len, self_depends_path_index) =
+                {
+                    let path_index = rng.gen_range(0..pathes.len());
+
+                    let path = &mut pathes[path_index];
+
+                    if path.items.len() == 0 || path.depends_from_this_path_index_count > 0
+                    {
+                        continue
+                    }
+
+                    let path_info = path.items.pop().unwrap();
+
+                    self.adjust_space.set_adjust_value_to_data(
+                        &mut dna.body_node_adj,
+                        path_info.from_node_index,
+                        path_info.to_node_index,
+                        0
+                    );
+
+                    allocated_normal_nodes -= 1;
+
+                    (path.items.len(), path.self_depends_path_index)
+                };
+
+
+            if items_len == 0
+            {
+                if self_depends_path_index != usize::MAX
+                {
+                    let depends_path = &mut pathes[self_depends_path_index];
+
+                    depends_path.depends_from_this_path_index_count -= 1;
+                }
+
+            }
+        }
+
+        std::mem::swap(&mut queue_indexes, &mut self.queue_indexes_buffer);
+    }
+
     pub fn convert_dna_to_build(&mut self, build_table: &LuaTable, dna: &mut Dna, max_number_normal_nodes_to_allocate: usize, max_number_ascend_nodes_to_allocate: usize) -> DnaConvertResult
     {
         let mut queue_indexes = Vec::new();
@@ -50,17 +412,6 @@ impl DnaEncoder {
             let mut node = node.borrow_mut();
 
             node.alloc = node.default_alloc;
-
-            if node.alloc
-            {
-                node.path_dist = 0;
-            }
-            else
-            {
-                node.path_dist = usize::MAX;
-            }
-
-            node.path_indexes.clear();
         }
 
         for mastery in &self.masteries
@@ -123,73 +474,89 @@ impl DnaEncoder {
 
                     o += 1;
 
-                    for (linked_index, linked_node_index) in node.linked_indexes.iter().enumerate()
+                    for (_linked_index, linked_node_index) in node.linked_indexes.iter().enumerate()
                     {
-                        let node_nucl = dna.body_node_edges[node.tree_node_index * 10 + linked_index];
+                        let node_nucl = self.adjust_space.get_adjust_value_from_data(
+                            &dna.body_node_adj,
+                            node.tree_node_index,
+                            *linked_node_index
+                        );
 
                         if node_nucl == 1
                         {
                             let mut other = self.tree_nodes[*linked_node_index].borrow_mut();
 
-                            if other.ascendancy_id == usize::MAX
-                            {
-                                if allocated_normal_nodes == max_number_normal_nodes_to_allocate
-                                {
-                                    continue;
-                                }
-
-                                allocated_normal_nodes += 1;
-                            }
-                            else
-                            {
-                                if allocated_ascend_nodes == max_number_ascend_nodes_to_allocate
-                                {
-                                    continue;
-                                }
-
-                                allocated_ascend_nodes += 1;
-                            }
-
                             if other.alloc == false
                             {
-                                other.alloc = true;
-
-                                let node_table: LuaTable = nodes_table.get(other.id).unwrap();
-                                node_table.set("alloc", true).unwrap();
-                                alloc_nodes_table.set(other.id, node_table).unwrap();
-
-                                match other.node_type {
-                                    NodeType::NORMAL => {
-                                        queue_indexes.push(other.tree_node_index);
-
-                                        i += 1;
-                                    },
-                                    NodeType::MASTERY => {
-                                        let mut mastery = self.masteries[other.mastery_index].borrow_mut();
-
-                                        if mastery.effect_next_select_index < mastery.effects_indexes_to_select.len()
-                                        {
-                                            let effect_index = mastery.effects_indexes_to_select[mastery.effect_next_select_index];
-
-                                            let effect_id = mastery.effects[effect_index].id;
-
-                                            mastery_selections_table.set(other.id, effect_id).unwrap();
-
-                                            let effect_table: LuaTable = mastery_effects_table.get(effect_id).unwrap();
-
-                                            let lua_sd: LuaValue = effect_table.get("sd").unwrap();
-
-                                            let node_table: LuaTable = nodes_table.get(other.id).unwrap();
-
-                                            node_table.set("sd", lua_sd).unwrap();
-                                            node_table.set("allMasteryOptions", false).unwrap();
-
-                                            let _: LuaValue = tree_table.call_method("ProcessStats", node_table).unwrap();
-
-                                            mastery.effect_next_select_index += 1;
-                                        }
+                                if other.ascendancy_id == usize::MAX
+                                {
+                                    if allocated_normal_nodes == max_number_normal_nodes_to_allocate
+                                    {
+                                        break;
                                     }
-                                    _ => {}
+
+                                    allocated_normal_nodes += 1;
+                                }
+                                else
+                                {
+                                    if allocated_ascend_nodes == max_number_ascend_nodes_to_allocate
+                                    {
+                                        break;
+                                    }
+
+                                    allocated_ascend_nodes += 1;
+                                }
+
+                                let need_allocate =
+                                    match other.node_type {
+                                        NodeType::NORMAL => {
+                                            queue_indexes.push(other.tree_node_index);
+
+                                            i += 1;
+
+                                            true
+                                        },
+                                        NodeType::MASTERY => {
+                                            let mut mastery = self.masteries[other.mastery_index].borrow_mut();
+
+                                            if mastery.effect_next_select_index < mastery.effects_indexes_to_select.len()
+                                            {
+                                                let effect_index = mastery.effects_indexes_to_select[mastery.effect_next_select_index];
+
+                                                let effect_id = mastery.effects[effect_index].id;
+
+                                                mastery_selections_table.set(other.id, effect_id).unwrap();
+
+                                                let effect_table: LuaTable = mastery_effects_table.get(effect_id).unwrap();
+
+                                                let lua_sd: LuaValue = effect_table.get("sd").unwrap();
+
+                                                let node_table: LuaTable = nodes_table.get(other.id).unwrap();
+
+                                                node_table.set("sd", lua_sd).unwrap();
+                                                node_table.set("allMasteryOptions", false).unwrap();
+
+                                                let _: LuaValue = tree_table.call_method("ProcessStats", node_table).unwrap();
+
+                                                mastery.effect_next_select_index += 1;
+
+                                                true
+                                            }
+                                            else
+                                            {
+                                                false
+                                            }
+                                        }
+                                        _ => false
+                                    };
+
+                                if need_allocate
+                                {
+                                    other.alloc = true;
+
+                                    let node_table: LuaTable = nodes_table.get(other.id).unwrap();
+                                    node_table.set("alloc", true).unwrap();
+                                    alloc_nodes_table.set(other.id, node_table).unwrap();
                                 }
                             }
                         }
@@ -204,79 +571,6 @@ impl DnaEncoder {
         DnaConvertResult {
             allocated_normal_nodes,
             allocated_ascend_nodes
-        }
-    }
-
-    // Perform a breadth-first search of the tree, starting from this node, and determine if it is the closest node to any other nodes
-    // alg from PassiveSpec.lua (function PassiveSpecClass:BuildPathFromNode(root))
-    fn build_path_from_node(&self, queue_indexes: &mut Vec<usize>, root: &RefCell<Node>)
-    {
-        {
-            let mut root = root.borrow_mut();
-
-            root.path_dist = 0;
-            root.path_indexes.clear();
-
-            queue_indexes.clear();
-            queue_indexes.push(root.tree_node_index);
-        }
-
-        let mut o = 0; // out
-        let mut i = 1; // in
-
-        while o < i
-        {
-            let node = self.tree_nodes[queue_indexes[o.clone()]].borrow();
-
-            o += 1;
-
-            let cur_dist = node.path_dist + 1;
-
-            for linked_index in &node.linked_indexes
-            {
-                let mut other = self.tree_nodes[*linked_index].borrow_mut();
-
-                match other.node_type {
-                    NodeType::NORMAL => {
-                        if node.ascendancy_id == other.ascendancy_id || (cur_dist == 1 && other.ascendancy_id == usize::MAX)
-                        {
-                            if other.path_dist > cur_dist
-                            {
-                                other.path_dist = cur_dist;
-                                other.path_indexes.clear();
-
-                                let other_node_index = other.tree_node_index.clone();
-
-                                other.path_indexes.push(other_node_index);
-                                for node_path_index in node.path_indexes.iter()
-                                {
-                                    other.path_indexes.push(node_path_index.clone())
-                                }
-
-                                queue_indexes.push(other.tree_node_index);
-
-                                i += 1;
-                            }
-                        }
-                    }
-                    NodeType::MASTERY => {
-                        if other.path_dist > cur_dist
-                        {
-                            other.path_dist = cur_dist;
-                            other.path_indexes.clear();
-
-                            let other_node_index = other.tree_node_index.clone();
-
-                            other.path_indexes.push(other_node_index);
-                            for node_path_index in node.path_indexes.iter()
-                            {
-                                other.path_indexes.push(node_path_index.clone())
-                            }
-                        }
-                    },
-                    _ => {}
-                }
-            }
         }
     }
 }
@@ -318,8 +612,7 @@ struct Node
     mastery_index: usize,
     id: i64,
     linked_indexes: Vec<usize>,
-    path_indexes: Vec<usize>,
-    path_dist: usize,
+    path_index: usize,
     alloc: bool,
     ascendancy_id: usize,
     default_alloc: bool
@@ -423,11 +716,10 @@ pub fn create_dna_encoder(build_table: &LuaTable) -> DnaEncoder
             mastery_index: 0,
             node_type: node_type.clone(),
             linked_indexes: Vec::with_capacity(100),
-            path_indexes: Vec::with_capacity(1000),
-            path_dist: 0,
-            alloc: false,
+            alloc: node_alloc,
             ascendancy_id: node_ascend_id,
-            default_alloc: node_alloc
+            default_alloc: node_alloc,
+            path_index: usize::MAX
         };
 
         tree_nodes.push(RefCell::new(node));
@@ -548,11 +840,60 @@ pub fn create_dna_encoder(build_table: &LuaTable) -> DnaEncoder
 
     let tree_nodes_len = tree_nodes.len().clone();
 
+    let mut adjust_space = AdjustSpace {
+        space_indexes: HashMap::new(),
+        count_indexes: 0
+    };
+
+    let mut queue_indexes = Vec::new();
+
+    for root in &tree_nodes
+    {
+        {
+            let mut root = root.borrow_mut();
+
+            if root.alloc == false
+            {
+                continue
+            }
+
+            queue_indexes.clear();
+            queue_indexes.push(root.tree_node_index);
+        }
+
+        let mut o = 0; // out
+        let mut i = 1; // in
+
+        while o < i
+        {
+            let mut node = tree_nodes[queue_indexes[o.clone()]].borrow_mut();
+
+            o += 1;
+
+            node.alloc = true;
+
+            for linked_index in &node.linked_indexes
+            {
+                let mut linked_node = tree_nodes[*linked_index].borrow_mut();
+
+                adjust_space.try_add_nodes(node.tree_node_index, *linked_index);
+
+                if linked_node.alloc == false
+                {
+                    linked_node.alloc = true;
+
+                    queue_indexes.push(linked_node.tree_node_index);
+
+                    i += 1;
+                }
+            }
+        }
+    }
+
     DnaEncoder {
         tree_nodes,
         masteries,
-        path_indexes_buf: Vec::with_capacity(1000),
-        index_nodes_to_allocate: HashSet::with_capacity(tree_nodes_len),
+        adjust_space,
         queue_indexes_buffer: Vec::with_capacity(tree_nodes_len)
     }
 }

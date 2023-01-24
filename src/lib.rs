@@ -7,6 +7,7 @@ mod lua_module;
 mod dna_encoder;
 mod targets;
 mod fitness_function_calculator;
+mod adjust_space;
 
 #[cfg(test)]
 mod tests {
