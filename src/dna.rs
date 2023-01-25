@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::ops::{Deref, DerefMut, RangeInclusive};
 use std::rc::Rc;
 use mlua::UserData;
-use rand::Rng;
+use rand::prelude::SliceRandom;
+use rand::{Rng, thread_rng};
 use rand::rngs::ThreadRng;
 
 const MAX_MUTATE_CLUSTER_SIZE: usize = 4;
@@ -146,6 +148,27 @@ impl Dna {
 
         new_dna.body_nodes[range_body_nodes.clone()].clone_from_slice(&dna2.body_nodes[range_body_nodes]);
         new_dna.body_masteries[range_masteries_nodes.clone()].clone_from_slice(&dna2.body_masteries[range_masteries_nodes]);
+
+        let mut selected_nodes = Vec::new();
+        for (index, nucl) in new_dna.body_nodes.iter().enumerate()
+        {
+            if *nucl == 1
+            {
+                selected_nodes.push(index);
+            }
+        }
+
+        if selected_nodes.len() > 107 * 8
+        {
+            selected_nodes.shuffle(&mut thread_rng());
+
+            while selected_nodes.len() > 107 * 8
+            {
+                let index = selected_nodes.pop().unwrap();
+
+                new_dna.body_nodes[index] = 0;
+            }
+        }
 
         new_dna
     }
