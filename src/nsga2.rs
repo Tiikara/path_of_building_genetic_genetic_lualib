@@ -27,7 +27,9 @@ pub struct NSGAOptimizer<'a, S: Solution> {
 
 pub trait SolutionsRuntimeProcessor<S: Solution> {
     fn new_candidates(&mut self, candidates: Vec<&mut S>);
-    fn best_solutions(&mut self, candidates: Vec<&mut S>);
+    fn iter_solutions(&mut self, candidates: Vec<&mut S>);
+    fn iteration_num(&mut self, num: usize);
+    fn needs_early_stop(&mut self) -> bool;
 }
 
 impl<'a, S> NSGAOptimizer<'a, S>
@@ -81,6 +83,13 @@ impl<'a, S> NSGAOptimizer<'a, S>
         let mut parent_pop = self.sort(pop);
 
         for iter in 0.. {
+            if runtime_solutions_processor.needs_early_stop()
+            {
+                break;
+            }
+
+            runtime_solutions_processor.iteration_num(iter);
+
             // Keep copies of the best candidates in a stash
             parent_pop
                 .iter()
@@ -95,12 +104,12 @@ impl<'a, S> NSGAOptimizer<'a, S>
                     self.best_solutions.push((vals, c.sol.clone()));
                 });
 
-            let mut preprocess_vec = Vec::with_capacity(self.best_solutions.len());
-            for child in self.best_solutions.iter_mut()
+            let mut preprocess_vec = Vec::with_capacity(parent_pop.len());
+            for child in parent_pop.iter_mut()
             {
-                preprocess_vec.push(&mut child.1);
+                preprocess_vec.push(&mut child.sol);
             }
-            runtime_solutions_processor.best_solutions(preprocess_vec);
+            runtime_solutions_processor.iter_solutions(preprocess_vec);
 
             // Check if there's a good-enough solution already
             if parent_pop

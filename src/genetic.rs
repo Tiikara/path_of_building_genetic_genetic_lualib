@@ -86,6 +86,8 @@ struct SolutionsRuntimeDnaProcessor
     writer_dna_queue_channel: Sender<Box<DnaCommand>>,
     reader_dna_result_queue_channel: Receiver<Box<DnaCommand>>,
     process_status: Arc<RwLock<ProcessStatus>>,
+    current_generation_number: Arc<AtomicU64>,
+    is_received_stop_request: Arc<AtomicBool>,
     best_solution_fitness: f64
 }
 
@@ -94,7 +96,7 @@ impl SolutionsRuntimeProcessor<Dna> for SolutionsRuntimeDnaProcessor
     fn new_candidates(&mut self, mut dnas: Vec<&mut Dna>) {
         for dna in dnas.iter_mut()
         {
-            let mut new_dna = Dna::new(DnaData::new(1, 1, 1));
+            let mut new_dna = Dna::new(DnaData::new(1, 1, 1, 1));
 
             std::mem::swap(&mut new_dna, *dna);
 
@@ -115,7 +117,7 @@ impl SolutionsRuntimeProcessor<Dna> for SolutionsRuntimeDnaProcessor
         }
     }
 
-    fn best_solutions(&mut self, candidates: Vec<&mut Dna>) {
+    fn iter_solutions(&mut self, candidates: Vec<&mut Dna>) {
         for dna in candidates
         {
             if dna.fitness_score > self.best_solution_fitness
@@ -134,6 +136,29 @@ impl SolutionsRuntimeProcessor<Dna> for SolutionsRuntimeDnaProcessor
                 self.best_solution_fitness = dna.fitness_score;
             }
         }
+    }
+
+    fn iteration_num(&mut self, num: usize) {
+        self.current_generation_number.store(num as u64, Ordering::SeqCst);
+    }
+
+    fn needs_early_stop(&mut self) -> bool {
+        self.is_received_stop_request.load(Ordering::SeqCst)
+    }
+}
+
+pub struct FitnessScoreObjective
+{
+
+}
+
+impl<'a> Objective<Dna> for FitnessScoreObjective {
+    fn value(&self, candidate: &Dna) -> f64 {
+        -candidate.fitness_score
+    }
+
+    fn good_enough(&self, val: f64) -> bool {
+        false
     }
 }
 
@@ -155,6 +180,7 @@ struct Params<'a> {
     population_max_generation_size: usize,
     tree_nodes_count: usize,
     masteries_nodes_count: usize,
+    max_nodes_count: usize,
     targets_count: usize,
     rng: &'a mut ThreadRng,
     objectives: Vec<Box<dyn Objective<Dna>>>,
@@ -171,16 +197,15 @@ impl<'a> Meta<'a, Dna> for Params<'a> {
     }
 
     fn mutation_odds(&self) -> &'a Ratio {
-        &Ratio(3, 10)
+        &Ratio(1, 1)
     }
 
     fn random_solution(&mut self) -> Dna {
         Dna::new(
-            DnaData::new(
-                self.tree_nodes_count,
-                self.masteries_nodes_count,
-                self.targets_count
-            )
+            DnaData::new(self.tree_nodes_count,
+                         self.masteries_nodes_count,
+                         self.targets_count,
+                         self.max_nodes_count)
         )
     }
 
@@ -286,9 +311,7 @@ impl UserData for LuaGeneticSolver {
         });
 
         methods.add_method_mut("StartSolve", |_lua_context, this, (
-            max_generations_count,
             stop_generations_eps,
-            count_generations_mutate_eps,
             population_max_generation_size,
             tree_nodes_count,
             masteries_nodes_count,
@@ -296,7 +319,7 @@ impl UserData for LuaGeneticSolver {
             target_ascendancy_nodes_count,
             targets_table,
             maximizes_table
-        ): (usize, usize, usize, usize, usize, usize, usize, usize, LuaTable, LuaTable)| {
+        ): (usize, usize, usize, usize, usize, usize, LuaTable, LuaTable)| {
 
             if population_max_generation_size % 2 != 0
             {
@@ -369,13 +392,12 @@ impl UserData for LuaGeneticSolver {
                               process_status,
                               is_received_stop_request,
                               current_generation_number,
-                              max_generations_count,
                               stop_generations_eps,
-                              count_generations_mutate_eps,
                               population_max_generation_size,
                               tree_nodes_count,
                               masteries_nodes_count,
-                              targets_count)
+                              targets_count,
+                              target_normal_nodes_count + target_ascendancy_nodes_count)
             });
 
             this.main_thread = Some(thread);
@@ -420,13 +442,12 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
                      process_status: Arc<RwLock<ProcessStatus>>,
                      is_received_stop_request: Arc<AtomicBool>,
                      current_generation_number: Arc<AtomicU64>,
-                     max_generations_count: usize,
                      stop_generations_eps: usize,
-                     count_generations_mutate_eps: usize,
                      population_max_generation_size: usize,
                      tree_nodes_count: usize,
                      masteries_nodes_count: usize,
-                     targets_count: usize)
+                     targets_count: usize,
+                     target_nodes_count: usize)
 {
     let mut objectives: Vec<Box<dyn Objective<Dna>>> = Vec::new();
 
@@ -437,10 +458,13 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
         }));
     }
 
+    objectives.push(Box::new(FitnessScoreObjective{}));
+
     let meta = Params {
         population_max_generation_size,
         tree_nodes_count,
         masteries_nodes_count,
+        max_nodes_count: target_nodes_count,
         targets_count,
         rng: &mut thread_rng(),
         objectives,
@@ -448,14 +472,16 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
     };
 
     let mut optimizer = NSGAOptimizer::new(meta);
-    let res = optimizer
+    let _ = optimizer
         .optimize(
             Box::new(DefaultEvaluator::new(stop_generations_eps)),
             Box::new(SolutionsRuntimeDnaProcessor {
                 writer_dna_queue_channel,
                 reader_dna_result_queue_channel,
                 process_status: process_status.clone(),
-                best_solution_fitness: -1.0,
+                current_generation_number,
+                is_received_stop_request: is_received_stop_request.clone(),
+                best_solution_fitness: -1.0
             })
         );
 

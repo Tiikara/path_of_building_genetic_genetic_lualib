@@ -30,7 +30,7 @@ impl Target for AutoTargetManaRegen
 
         match stats.try_get_stat(String::from("player"), String::from("ManaPerSecondCost")) {
             None => {
-                0.01
+                1.0
             },
             Some(mana_per_second_cost) => {
                 fitness_function_calculator.calc_target_mul(mana_recovery_sum, 1.0, mana_per_second_cost, false)
