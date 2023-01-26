@@ -43,7 +43,7 @@ impl DnaData {
             body_nodes: vec![0; tree_nodes_count],
             body_masteries: vec![0; mastery_count * 6],
             fitness_score: -1.0,
-            fitness_score_targets: vec![-1.0; targets_count],
+            fitness_score_targets: vec![-1.0; targets_count]
         }
     }
 }
@@ -137,27 +137,6 @@ impl Dna {
 
         new_dna.body_nodes[range_body_nodes.clone()].clone_from_slice(&dna2.body_nodes[range_body_nodes]);
         new_dna.body_masteries[range_masteries_nodes.clone()].clone_from_slice(&dna2.body_masteries[range_masteries_nodes]);
-
-        let mut selected_nodes = Vec::new();
-        for (index, nucl) in new_dna.body_nodes.iter().enumerate()
-        {
-            if *nucl == 1
-            {
-                selected_nodes.push(index);
-            }
-        }
-
-        if selected_nodes.len() > 107 * 8
-        {
-            selected_nodes.shuffle(&mut thread_rng());
-
-            while selected_nodes.len() > 107 * 8
-            {
-                let index = selected_nodes.pop().unwrap();
-
-                new_dna.body_nodes[index] = 0;
-            }
-        }
 
         new_dna
     }

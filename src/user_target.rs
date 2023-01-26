@@ -1,9 +1,11 @@
-use std::borrow::Borrow;
-use mlua::{Lua, Table, UserData};
+use mlua::{Lua, Table};
 use mlua::prelude::{LuaTable, LuaValue};
+use crate::fitness_function_calculator::{FitnessFunctionCalculator, FitnessFunctionCalculatorStats};
+use crate::target::Target;
+
 
 #[derive(Clone)]
-pub struct Target
+pub struct UserTarget
 {
     pub stat: String,
     pub actor: String,
@@ -13,8 +15,41 @@ pub struct Target
     pub lower_is_better: bool
 }
 
+impl Target for UserTarget
+{
+    fn clone_dyn(&self) -> Box<dyn Target> {
+        Box::new(self.clone())
+    }
 
-pub fn create_targets_from_tables(targets_table: LuaTable, maximize_table: LuaTable) -> Vec<Target>
+    fn calc_fitness_score(&self, fitness_function_calculator: &FitnessFunctionCalculator, stats: &mut FitnessFunctionCalculatorStats) -> f64 {
+        let stat = stats.try_get_stat(self.actor.clone(), self.stat.clone());
+
+        if self.is_maximize
+        {
+            match stat {
+                None => {
+                    0.01
+                }
+                Some(stat_value) => {
+                    stat_value
+                }
+            }
+        }
+        else
+        {
+            match stat {
+                None => {
+                    0.01
+                }
+                Some(stat_value) => {
+                    fitness_function_calculator.calc_target_mul(stat_value, self.weight, self.target, self.lower_is_better)
+                }
+            }
+        }
+    }
+}
+
+pub fn create_targets_from_tables(targets_table: LuaTable, maximize_table: LuaTable) -> Vec<UserTarget>
 {
     let mut targets = Vec::new();
 
@@ -28,7 +63,7 @@ pub fn create_targets_from_tables(targets_table: LuaTable, maximize_table: LuaTa
                 Some(lower_is_better) => lower_is_better
             };
 
-        targets.push(Target {
+        targets.push(UserTarget {
             stat: lua_target.get("stat").unwrap(),
             actor: lua_target.get("actor").unwrap(),
             weight: lua_target.get("weight").unwrap(),
@@ -48,7 +83,7 @@ pub fn create_targets_from_tables(targets_table: LuaTable, maximize_table: LuaTa
                 Some(lower_is_better) => lower_is_better
             };
 
-        targets.push(Target {
+        targets.push(UserTarget {
             stat: lua_target.get("stat").unwrap(),
             actor: lua_target.get("actor").unwrap(),
             weight: lua_target.get("weight").unwrap(),
@@ -61,7 +96,7 @@ pub fn create_targets_from_tables(targets_table: LuaTable, maximize_table: LuaTa
     targets
 }
 
-pub fn create_tables_from_targets<'lua>(lua: &'lua Lua, targets: &Vec<Target>) -> (Table<'lua>, Table<'lua>)
+pub fn create_tables_from_targets<'lua>(lua: &'lua Lua, targets: &Vec<UserTarget>) -> (Table<'lua>, Table<'lua>)
 {
     let targets_table = lua.create_table().unwrap();
     let maximizes_table = lua.create_table().unwrap();

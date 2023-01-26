@@ -1,14 +1,9 @@
 use std::borrow::{Borrow};
 use std::cell::{RefCell};
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::Write;
-use std::ops::Deref;
 use mlua::{Lua, TableExt, UserData, UserDataMethods};
-use mlua::prelude::{LuaResult, LuaString, LuaTable, LuaValue};
+use mlua::prelude::{LuaResult, LuaTable, LuaValue};
 use crate::dna::{Dna, LuaDna};
-
-use crate::worker::LuaDnaCommand;
 
 pub struct DnaEncoder
 {
@@ -180,7 +175,7 @@ impl DnaEncoder {
 
                 let (is_allocated, is_ascend) =
                     {
-                        let mut path_node = path_node.borrow_mut();
+                        let path_node = path_node.borrow_mut();
 
                         if path_node.alloc {
                             continue;

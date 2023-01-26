@@ -1,5 +1,5 @@
 use std::{env, thread};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
@@ -9,16 +9,17 @@ use std::thread::{JoinHandle};
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use mlua::prelude::*;
 use mlua::{UserData, UserDataMethods};
-use rand::distributions::{WeightedIndex, Distribution};
 
-use rand::prelude::{SliceRandom, ThreadRng};
-use rand::{Rng, thread_rng};
+use rand::prelude::{ThreadRng};
+use rand::{thread_rng};
+use crate::auto_targets::{AutoTargetFromStatToStat, AutoTargetManaCost, AutoTargetManaRegen};
 
 use crate::dna::{Dna, DnaData, LuaDna};
 use crate::nsga2::{NSGAOptimizer, SolutionsRuntimeProcessor};
 use crate::nsga2_evaluator::DefaultEvaluator;
 use crate::nsga2_lib::{Constraint, Meta, Objective, Ratio, Solution};
-use crate::targets::{create_targets_from_tables, Target};
+use crate::target::Target;
+use crate::user_target::{create_targets_from_tables};
 use crate::worker::worker_main;
 
 pub struct DnaCommand {
@@ -29,7 +30,7 @@ pub struct Session {
     pub number: usize,
     pub target_normal_nodes_count: usize,
     pub target_ascendancy_nodes_count: usize,
-    pub targets: Vec<Target>
+    pub targets: Vec<Box<dyn Target>>
 }
 
 pub struct ProcessStatus {
@@ -170,7 +171,7 @@ impl<'a> Meta<'a, Dna> for Params<'a> {
     }
 
     fn mutation_odds(&self) -> &'a Ratio {
-        &Ratio(1, 1)
+        &Ratio(3, 10)
     }
 
     fn random_solution(&mut self) -> Dna {
@@ -322,7 +323,29 @@ impl UserData for LuaGeneticSolver {
                     session_parameters.target_ascendancy_nodes_count = target_ascendancy_nodes_count;
                     session_parameters.number += 1;
 
-                    session_parameters.targets = create_targets_from_tables(targets_table, maximizes_table);
+                    let user_targets = create_targets_from_tables(targets_table, maximizes_table);
+
+                    session_parameters.targets.clear();
+
+                    for user_target in user_targets
+                    {
+                        session_parameters.targets.push(Box::new(user_target));
+                    }
+
+                    session_parameters.targets.push(Box::new(AutoTargetManaCost{}));
+                    session_parameters.targets.push(Box::new(AutoTargetManaRegen{}));
+                    session_parameters.targets.push(Box::new(AutoTargetFromStatToStat{
+                        target_stat_name: String::from("ReqStr"),
+                        current_stat_name: String::from("Str"),
+                    }));
+                    session_parameters.targets.push(Box::new(AutoTargetFromStatToStat{
+                        target_stat_name: String::from("ReqInt"),
+                        current_stat_name: String::from("Int"),
+                    }));
+                    session_parameters.targets.push(Box::new(AutoTargetFromStatToStat{
+                        target_stat_name: String::from("ReqDex"),
+                        current_stat_name: String::from("Dex"),
+                    }));
 
                     this.is_received_stop_request.store(false, Ordering::SeqCst);
 
@@ -378,7 +401,7 @@ pub fn create_genetic_solver(_: &Lua, (): ()) -> LuaResult<LuaGeneticSolver> {
             number: 0,
             target_ascendancy_nodes_count: 0,
             target_normal_nodes_count: 0,
-            targets: vec![],
+            targets: vec![]
         })),
         process_status: Arc::new(RwLock::new(ProcessStatus {
             best_dna: None,

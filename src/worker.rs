@@ -11,7 +11,7 @@ use crate::dna_encoder::{create_dna_encoder, DnaEncoder};
 use crate::fitness_function_calculator::{FitnessFunctionCalculator, FitnessFunctionCalculatorStats};
 
 use crate::genetic::{DnaCommand, Session};
-use crate::targets::create_tables_from_targets;
+use crate::user_target::create_tables_from_targets;
 
 #[derive(Clone)]
 pub struct LuaDnaCommand
@@ -92,8 +92,6 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
 
                 let fitness_function_calculator =
                     FitnessFunctionCalculator::new(
-                        target_normal_nodes_count,
-                        target_ascendancy_nodes_count,
                         session.targets.clone()
                     );
 
@@ -135,8 +133,8 @@ fn calculate_targets_for_dna(fitness_function_calculator: &FitnessFunctionCalcul
 {
     for (index_target, target) in fitness_function_calculator.targets.iter().enumerate()
     {
-        dna.fitness_score_targets[index_target] = fitness_function_calculator.calculate_fitness_score_for_target(stats, target);
+        dna.fitness_score_targets[index_target] = target.calc_fitness_score(&fitness_function_calculator, stats);
     }
 
-    dna.fitness_score = fitness_function_calculator.calculate_and_get_fitness_score(stats, 0, 0);
+    dna.fitness_score = fitness_function_calculator.calculate_and_get_fitness_score(stats);
 }
