@@ -33,49 +33,39 @@ impl<'a> DerefMut for Dna {
 pub struct DnaData {
     pub body_nodes: Vec<u8>,
     pub body_masteries: Vec<u8>,
-    pub fitness_score: f64
+    pub fitness_score: f64,
+    pub fitness_score_targets: Vec<f64>
 }
 
 impl DnaData {
-    pub(crate) fn new(tree_nodes_count: usize, mastery_count: usize) -> DnaData {
+    pub(crate) fn new(tree_nodes_count: usize, mastery_count: usize, targets_count: usize) -> DnaData {
         DnaData {
             body_nodes: vec![0; tree_nodes_count],
             body_masteries: vec![0; mastery_count * 6],
-            fitness_score: -1.0
+            fitness_score: -1.0,
+            fitness_score_targets: vec![-1.0; targets_count],
         }
     }
+}
 
-    fn init(&mut self) {
-        for item in &mut self.body_nodes { *item = 0; }
-        for item in &mut self.body_masteries { *item = 0; }
-        self.fitness_score = -1.0;
+impl Clone for Dna {
+    fn clone(&self) -> Dna {
+        Dna {
+            reference: self.reference.clone()
+        }
     }
 }
 
 impl Dna {
-    pub fn new(dna_data_allocator: &mut Vec<Box<DnaData>>) -> Dna {
-        let mut dna_data = dna_data_allocator.pop().unwrap();
-
-        dna_data.init();
-
+    pub fn new(dna_data: DnaData) -> Dna {
         Dna {
-            reference: dna_data
+            reference: Box::new(dna_data)
         }
     }
 
-    pub fn clone(&self, dna_data_allocator: &mut Vec<Box<DnaData>>) -> Dna {
-        let mut dna_data = dna_data_allocator.pop().unwrap();
+    pub fn mutate(&mut self) {
+        let mut rng = thread_rng();
 
-        dna_data.body_nodes[..self.body_nodes.len()].clone_from_slice(&self.body_nodes[..self.body_nodes.len()]);
-        dna_data.body_masteries[..self.body_masteries.len()].clone_from_slice(&self.body_masteries[..self.body_masteries.len()]);
-        dna_data.fitness_score = self.fitness_score;
-
-        Dna {
-            reference: dna_data
-        }
-    }
-
-    pub fn mutate(&mut self, rng: &mut ThreadRng) {
         // Mutate nodes
         let mutate_cluster_size = rng.gen_range(1..=MAX_MUTATE_CLUSTER_SIZE);
         let start_num = rng.gen_range(0..self.body_nodes.len() - mutate_cluster_size);
@@ -111,7 +101,9 @@ impl Dna {
         }
     }
 
-    pub fn combine(&self, dna_data_allocator: &mut Vec<Box<DnaData>>, dna2: &Dna, rng: &mut ThreadRng) -> Dna {
+    pub fn combine(&self, dna2: &Dna) -> Dna {
+        let mut rng = thread_rng();
+
         let crossover_body_start: usize = rng.gen_range(0..self.body_nodes.len());
         let crossover_body_end: usize = rng.gen_range(0..self.body_nodes.len());
 
@@ -122,29 +114,26 @@ impl Dna {
 
         if crossover_body_start < crossover_body_end
         {
-            Dna::crossover_dna(dna_data_allocator,
-                               dna2,
+            Dna::crossover_dna(dna2,
                                self,
                                crossover_body_start..=crossover_body_end,
                                range_masteries_nodes)
         }
         else
         {
-            Dna::crossover_dna(dna_data_allocator,
-                               self,
+            Dna::crossover_dna(self,
                                dna2,
                                crossover_body_end..=crossover_body_start,
                                range_masteries_nodes)
         }
     }
 
-    fn crossover_dna(dna_data_allocator: &mut Vec<Box<DnaData>>,
-                     dna1: &Dna,
+    fn crossover_dna(dna1: &Dna,
                      dna2: &Dna,
                      range_body_nodes: RangeInclusive<usize>,
                      range_masteries_nodes: RangeInclusive<usize>) -> Dna
     {
-        let mut new_dna = dna1.clone(dna_data_allocator);
+        let mut new_dna = dna1.clone();
 
         new_dna.body_nodes[range_body_nodes.clone()].clone_from_slice(&dna2.body_nodes[range_body_nodes]);
         new_dna.body_masteries[range_masteries_nodes.clone()].clone_from_slice(&dna2.body_masteries[range_masteries_nodes]);

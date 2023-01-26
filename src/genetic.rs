@@ -1,5 +1,6 @@
 use std::{env, thread};
 use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -11,9 +12,12 @@ use mlua::{UserData, UserDataMethods};
 use rand::distributions::{WeightedIndex, Distribution};
 
 use rand::prelude::{SliceRandom, ThreadRng};
-use rand::Rng;
+use rand::{Rng, thread_rng};
 
 use crate::dna::{Dna, DnaData, LuaDna};
+use crate::nsga2::{NSGAOptimizer, SolutionsRuntimeProcessor};
+use crate::nsga2_evaluator::DefaultEvaluator;
+use crate::nsga2_lib::{Constraint, Meta, Objective, Ratio, Solution};
 use crate::targets::{create_targets_from_tables, Target};
 use crate::worker::worker_main;
 
@@ -52,6 +56,140 @@ pub struct LuaGeneticSolver
     pub main_thread: Option<JoinHandle<()>>,
 
     pub is_received_stop_request: Arc<AtomicBool>
+}
+
+impl<'a> Debug for Dna {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+impl Solution for Dna {
+    fn crossover(&mut self, other: &mut Self)
+    {
+        let mut tmp_dna1 = self.combine(other);
+        let mut tmp_dna2 = self.combine(other);
+
+        std::mem::swap(self, &mut tmp_dna1);
+        std::mem::swap(other, &mut tmp_dna2);
+    }
+
+    fn mutate(&mut self)
+    {
+        self.mutate()
+    }
+}
+
+struct SolutionsRuntimeDnaProcessor
+{
+    writer_dna_queue_channel: Sender<Box<DnaCommand>>,
+    reader_dna_result_queue_channel: Receiver<Box<DnaCommand>>,
+    process_status: Arc<RwLock<ProcessStatus>>,
+    best_solution_fitness: f64
+}
+
+impl SolutionsRuntimeProcessor<Dna> for SolutionsRuntimeDnaProcessor
+{
+    fn new_candidates(&mut self, mut dnas: Vec<&mut Dna>) {
+        for dna in dnas.iter_mut()
+        {
+            let mut new_dna = Dna::new(DnaData::new(1, 1, 1));
+
+            std::mem::swap(&mut new_dna, *dna);
+
+            let mut dna_command = DnaCommand {
+                dna: Some(new_dna)
+            };
+
+            self.writer_dna_queue_channel.send(Box::new(dna_command)).unwrap();
+        }
+
+        for dna in dnas
+        {
+            let mut dna_command = self.reader_dna_result_queue_channel.recv().expect("Cannot receive dna result signal");
+
+            let mut dna_from_command = dna_command.dna.take().unwrap();
+
+            std::mem::swap(&mut dna_from_command, dna);
+        }
+    }
+
+    fn best_solutions(&mut self, candidates: Vec<&mut Dna>) {
+        for dna in candidates
+        {
+            if dna.fitness_score > self.best_solution_fitness
+            {
+                {
+                    let mut process_status = self.process_status.write().unwrap();
+
+                    process_status.best_dna = Some(
+                        Dna {
+                            reference: dna.reference.clone()
+                        }
+                    );
+                    process_status.best_dna_number += 1;
+                }
+
+                self.best_solution_fitness = dna.fitness_score;
+            }
+        }
+    }
+}
+
+pub struct TargetObjective {
+    target_index: usize
+}
+
+impl<'a> Objective<Dna> for TargetObjective {
+    fn value(&self, candidate: &Dna) -> f64 {
+        -candidate.fitness_score_targets[self.target_index]
+    }
+
+    fn good_enough(&self, val: f64) -> bool {
+        false
+    }
+}
+
+struct Params<'a> {
+    population_max_generation_size: usize,
+    tree_nodes_count: usize,
+    masteries_nodes_count: usize,
+    targets_count: usize,
+    rng: &'a mut ThreadRng,
+    objectives: Vec<Box<dyn Objective<Dna>>>,
+    constraints: Vec<Box<dyn Constraint<Dna>>>,
+}
+
+impl<'a> Meta<'a, Dna> for Params<'a> {
+    fn population_size(&self) -> usize {
+        self.population_max_generation_size
+    }
+
+    fn crossover_odds(&self) -> &'a Ratio {
+        &Ratio(1, 2)
+    }
+
+    fn mutation_odds(&self) -> &'a Ratio {
+        &Ratio(1, 1)
+    }
+
+    fn random_solution(&mut self) -> Dna {
+        Dna::new(
+            DnaData::new(
+                self.tree_nodes_count,
+                self.masteries_nodes_count,
+                self.targets_count
+            )
+        )
+    }
+
+    fn objectives(&self) -> &Vec<Box<dyn Objective<Dna>>> {
+        &self.objectives
+    }
+
+    fn constraints(&self) -> &Vec<Box<dyn Constraint<Dna>>> {
+        &self.constraints
+    }
 }
 
 impl UserData for LuaGeneticSolver {
@@ -164,31 +302,34 @@ impl UserData for LuaGeneticSolver {
                 panic!("population_max_generation_size should be 2");
             }
 
-            {
-                let mut process_status = this.process_status.write().unwrap();
-
-                if process_status.is_progress
+            let targets_count =
                 {
-                    panic!("Genetic solve already in progress");
-                }
+                    let mut process_status = this.process_status.write().unwrap();
 
-                process_status.is_progress = true;
+                    if process_status.is_progress
+                    {
+                        panic!("Genetic solve already in progress");
+                    }
 
-                process_status.best_dna = None;
-                process_status.best_dna_number = 0;
+                    process_status.is_progress = true;
 
-                let mut session_parameters = this.session.write().unwrap();
+                    process_status.best_dna = None;
+                    process_status.best_dna_number = 0;
 
-                session_parameters.target_normal_nodes_count = target_normal_nodes_count;
-                session_parameters.target_ascendancy_nodes_count = target_ascendancy_nodes_count;
-                session_parameters.number += 1;
+                    let mut session_parameters = this.session.write().unwrap();
 
-                session_parameters.targets = create_targets_from_tables(targets_table, maximizes_table);
+                    session_parameters.target_normal_nodes_count = target_normal_nodes_count;
+                    session_parameters.target_ascendancy_nodes_count = target_ascendancy_nodes_count;
+                    session_parameters.number += 1;
 
-                this.is_received_stop_request.store(false, Ordering::SeqCst);
+                    session_parameters.targets = create_targets_from_tables(targets_table, maximizes_table);
 
-                this.current_generation_number.store(0, Ordering::SeqCst);
-            }
+                    this.is_received_stop_request.store(false, Ordering::SeqCst);
+
+                    this.current_generation_number.store(0, Ordering::SeqCst);
+
+                    session_parameters.targets.len()
+                };
 
             // Drain all current messages from previous iterations
             while this.reader_dna_queue_channel.try_recv().is_ok() {}
@@ -210,7 +351,8 @@ impl UserData for LuaGeneticSolver {
                               count_generations_mutate_eps,
                               population_max_generation_size,
                               tree_nodes_count,
-                              masteries_nodes_count)
+                              masteries_nodes_count,
+                              targets_count)
             });
 
             this.main_thread = Some(thread);
@@ -260,167 +402,39 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
                      count_generations_mutate_eps: usize,
                      population_max_generation_size: usize,
                      tree_nodes_count: usize,
-                     masteries_nodes_count: usize)
+                     masteries_nodes_count: usize,
+                     targets_count: usize)
 {
-    let mut dna_allocator = Vec::with_capacity(200000);
-    for _ in 0..dna_allocator.capacity()
-    {
-        dna_allocator.push(Box::new(DnaData::new(tree_nodes_count, masteries_nodes_count)));
-    }
+    let mut objectives: Vec<Box<dyn Objective<Dna>>> = Vec::new();
 
-    let mut dna_command_allocator = Vec::with_capacity(200000);
-    for _ in 0..dna_command_allocator.capacity()
+    for target_index in 0..targets_count
     {
-        dna_command_allocator.push(Box::new(DnaCommand {
-            dna: None
+        objectives.push(Box::new(TargetObjective {
+            target_index
         }));
     }
 
-    let mut population = Vec::with_capacity(200000);
-    let mut tmp_population = Vec::with_capacity(200000);
-    let mut bastards = Vec::with_capacity(200000);
-    let mut rng = rand::thread_rng();
+    let meta = Params {
+        population_max_generation_size,
+        tree_nodes_count,
+        masteries_nodes_count,
+        targets_count,
+        rng: &mut thread_rng(),
+        objectives,
+        constraints: vec![]
+    };
 
-    for index_node in 0..tree_nodes_count {
-        let mut dna = Dna::new(&mut dna_allocator);
-
-        dna.body_nodes[index_node] = 1;
-
-        population.push(dna);
-    }
-
-    let population_len = population.len();
-    calc_fitness_with_worker(
-        &writer_dna_queue_channel,
-        &reader_dna_result_queue_channel,
-        &mut dna_command_allocator,
-        &mut population,
-        population_len,
-    );
-
-    population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
-
-    let mut count_generations_with_best = 1;
-    let mut count_generations_with_best_population = 1;
-
-    let mut population_best_fitness = population[0].fitness_score;
-
-    for _ in 1..=max_generations_count {
-        current_generation_number.store(current_generation_number.load(Ordering::SeqCst) + 1, Ordering::SeqCst);
-
-        if is_received_stop_request.load(Ordering::SeqCst)
-        {
-            break;
-        }
-
-        let wighted_population_distr = WeightedIndex::new(population.iter().map(|item| item.fitness_score)).unwrap();
-
-        let count_of_combines = 100 * count_generations_with_best_population;
-
-        let count_of_combines =
-            if count_of_combines > population_max_generation_size
-            {
-                population_max_generation_size
-            }
-            else
-            {
-                count_of_combines
-            };
-
-        perform_combines(
-            &mut dna_allocator,
-            count_of_combines,
-            &population[0..population.len()],
-            wighted_population_distr,
-            &mut bastards,
-            &mut rng,
+    let mut optimizer = NSGAOptimizer::new(meta);
+    let res = optimizer
+        .optimize(
+            Box::new(DefaultEvaluator::new(stop_generations_eps)),
+            Box::new(SolutionsRuntimeDnaProcessor {
+                writer_dna_queue_channel,
+                reader_dna_result_queue_channel,
+                process_status: process_status.clone(),
+                best_solution_fitness: -1.0,
+            })
         );
-
-        for dna in bastards.iter_mut()
-        {
-            if rng.gen_range(0.0..1.0) < 0.8
-            {
-                dna.mutate(&mut rng);
-            }
-        }
-
-        let bastards_len = bastards.len();
-        calc_fitness_with_worker(
-            &writer_dna_queue_channel,
-            &reader_dna_result_queue_channel,
-            &mut dna_command_allocator,
-            &mut bastards,
-            bastards_len,
-        );
-
-        for _ in 0..population.len()
-        {
-            let dna_to_remove = population.pop().unwrap();
-            dna_allocator.push(dna_to_remove.reference);
-        }
-
-        while let Some(bastard) = bastards.pop() {
-            population.push(bastard);
-        }
-
-        remove_dublicates_with_same_fitness(
-            &mut dna_allocator,
-            &mut population,
-            &mut tmp_population,
-            &mut rng
-        );
-
-        population.sort_unstable_by(|a, b| b.fitness_score.total_cmp(&a.fitness_score));
-
-        if population[0].fitness_score > population_best_fitness
-        {
-            count_generations_with_best_population = 1;
-            population_best_fitness = population[0].fitness_score;
-        }
-        else
-        {
-            count_generations_with_best_population += 1;
-
-        }
-
-        let global_best_dna_fitness_score =
-            {
-                match &process_status.read().unwrap().best_dna {
-                    None => { -1.0 }
-                    Some(best_dna) => { best_dna.fitness_score }
-                }
-            };
-
-        if global_best_dna_fitness_score < population[0].fitness_score
-        {
-            {
-                let mut process_status = process_status.write().unwrap();
-
-                process_status.best_dna = Some(
-                    Dna {
-                        reference: population[0].reference.clone()
-                    }
-                );
-                process_status.best_dna_number += 1;
-            }
-
-            count_generations_with_best = 1;
-        }
-        else
-        {
-            count_generations_with_best += 1;
-        }
-
-        if count_generations_with_best == stop_generations_eps
-        {
-            break;
-        }
-
-        if count_generations_with_best_population % count_generations_mutate_eps == 0
-        {
-
-        }
-    }
 
     {
         process_status.write().unwrap().is_progress = false;
@@ -428,71 +442,3 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
     }
 }
 
-fn calc_fitness_with_worker(writer_dna_queue_channel: &Sender<Box<DnaCommand>>,
-                            reader_dna_result_queue_channel: &Receiver<Box<DnaCommand>>,
-                            dna_commands_allocator: &mut Vec<Box<DnaCommand>>,
-                            dnas: &mut Vec<Dna>,
-                            calc_count_from_end: usize
-)
-{
-    for _ in 0..calc_count_from_end
-    {
-        let dna = dnas.pop().unwrap();
-        let mut dna_command = dna_commands_allocator.pop().unwrap();
-
-        dna_command.dna = Some(dna);
-
-        writer_dna_queue_channel.send(dna_command).unwrap();
-    }
-
-    for _ in 0..calc_count_from_end {
-        let mut dna_command = reader_dna_result_queue_channel.recv().expect("Cannot receive dna result signal");
-
-        let dna = dna_command.dna.take().unwrap();
-
-        dnas.push(dna);
-        dna_commands_allocator.push(dna_command);
-    }
-}
-
-fn perform_combines(dna_data_allocator: &mut Vec<Box<DnaData>>, count_of_combines: usize, dnas: &[Dna], mut population_disrt: WeightedIndex<f64>, out_bastards: &mut Vec<Dna>, rng: &mut ThreadRng)
-{
-    for _ in 0..count_of_combines {
-        loop {
-            let dna1 = &dnas[population_disrt.sample(rng)];
-            let dna2 = &dnas[population_disrt.sample(rng)];
-
-            if dna1.fitness_score == dna2.fitness_score {
-                //continue;
-            }
-
-            out_bastards.push(dna1.combine(dna_data_allocator, dna2, rng));
-            break;
-        }
-    }
-}
-
-fn remove_dublicates_with_same_fitness(dna_data_allocator: &mut Vec<Box<DnaData>>, dnas: &mut Vec<Dna>, tmp_dnas: &mut Vec<Dna>, rng: &mut ThreadRng)
-{
-    let mut unique = HashSet::new();
-
-    tmp_dnas.clear();
-    dnas.shuffle(rng);
-
-    while let Some(dna) = dnas.pop() {
-        let normalized_fitness = (dna.fitness_score * 10000.0) as usize;
-
-        match unique.get(&normalized_fitness)
-        {
-            None => {
-                unique.insert(normalized_fitness);
-                tmp_dnas.push(dna);
-            },
-            _ => {
-                dna_data_allocator.push(dna.reference);
-            }
-        }
-    }
-
-    std::mem::swap(dnas, tmp_dnas);
-}

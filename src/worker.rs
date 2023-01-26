@@ -8,7 +8,7 @@ use mlua::{Function, Lua, LuaOptions, StdLib, UserData};
 use mlua::prelude::{LuaMultiValue, LuaResult, LuaString, LuaTable, LuaValue};
 use crate::dna::Dna;
 use crate::dna_encoder::{create_dna_encoder, DnaEncoder};
-use crate::fitness_function_calculator::FitnessFunctionCalculator;
+use crate::fitness_function_calculator::{FitnessFunctionCalculator, FitnessFunctionCalculatorStats};
 
 use crate::genetic::{DnaCommand, Session};
 use crate::targets::create_tables_from_targets;
@@ -74,7 +74,7 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
     let mut session_process_runtime: Option<Box<SessionProcessRuntime>> = None;
 
     loop {
-        let dna_command = reader_dna_queue_channel.recv().unwrap();
+        let mut dna_command = reader_dna_queue_channel.recv().unwrap();
 
         {
             let session = session.read().unwrap();
@@ -119,24 +119,24 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
 
         let stats_env: LuaTable = calculate_stats_func.call(()).unwrap();
 
-        let fitness_score = iteration_session_runtime.fitness_function_calculator.calculate_and_get_fitness_score(
-            &stats_env,
-            dna_convert_result.allocated_normal_nodes,
-            dna_convert_result.allocated_ascend_nodes
-        );
+        let mut stats = FitnessFunctionCalculatorStats::new(&stats_env);
+
+        calculate_targets_for_dna(&iteration_session_runtime.fitness_function_calculator,
+                                  &mut stats,
+                                  dna_command.dna.as_mut().unwrap());
+
+        writer_dna_result_queue_channel.send(dna_command).unwrap();
 
         session_process_runtime = Some(iteration_session_runtime);
-
-        worker_send_result(&writer_dna_result_queue_channel, dna_command, fitness_score);
     }
 }
 
-fn worker_send_result(writer_dna_result_queue_channel: &Sender<Box<DnaCommand>>, mut dna_command: Box<DnaCommand>, fitness_score: f64) {
-    match &mut dna_command.dna
+fn calculate_targets_for_dna(fitness_function_calculator: &FitnessFunctionCalculator, stats: &mut FitnessFunctionCalculatorStats, dna: &mut Dna)
+{
+    for (index_target, target) in fitness_function_calculator.targets.iter().enumerate()
     {
-        Some(dna) => dna.fitness_score = fitness_score,
-        None => panic!("Dna is not present in dna command")
+        dna.fitness_score_targets[index_target] = fitness_function_calculator.calculate_fitness_score_for_target(stats, target);
     }
 
-    writer_dna_result_queue_channel.send(dna_command).unwrap();
+    dna.fitness_score = fitness_function_calculator.calculate_and_get_fitness_score(stats, 0, 0);
 }

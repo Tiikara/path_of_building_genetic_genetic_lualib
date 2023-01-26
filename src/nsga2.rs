@@ -25,6 +25,11 @@ pub struct NSGAOptimizer<'a, S: Solution> {
     best_solutions: Vec<(Vec<f64>, S)>,
 }
 
+pub trait SolutionsRuntimeProcessor<S: Solution> {
+    fn new_candidates(&mut self, candidates: Vec<&mut S>);
+    fn best_solutions(&mut self, candidates: Vec<&mut S>);
+}
+
 impl<'a, S> NSGAOptimizer<'a, S>
     where
         S: Solution,
@@ -43,7 +48,8 @@ impl<'a, S> NSGAOptimizer<'a, S>
     /// Since an optimization can produce a set of
     /// [Pareto optimal solutions](https://en.wikipedia.org/wiki/Pareto_front),
     /// the optimizer returns an iterator.
-    pub fn optimize(&mut self, mut eval: Box<dyn Evaluator>) -> impl Iterator<Item = S> {
+    pub fn optimize(&mut self, mut eval: Box<dyn Evaluator>,
+                    mut runtime_solutions_processor: Box<dyn SolutionsRuntimeProcessor<S>>) -> impl Iterator<Item = S> {
         let mut rnd = rand::thread_rng();
 
         let pop_size = self.meta.population_size();
@@ -51,7 +57,7 @@ impl<'a, S> NSGAOptimizer<'a, S>
         let mutation_odds = self.meta.mutation_odds();
 
         // Initial population
-        let pop: Vec<_> = (0..pop_size)
+        let mut pop: Vec<_> = (0..pop_size)
             .map(|_| {
                 let id = self.next_id();
                 let sol = self.meta.random_solution();
@@ -65,6 +71,13 @@ impl<'a, S> NSGAOptimizer<'a, S>
             })
             .collect();
 
+        let mut preprocess_vec = Vec::with_capacity(pop.len());
+        for child in pop.iter_mut()
+        {
+            preprocess_vec.push(&mut child.sol);
+        }
+        runtime_solutions_processor.new_candidates(preprocess_vec);
+
         let mut parent_pop = self.sort(pop);
 
         for iter in 0.. {
@@ -72,7 +85,7 @@ impl<'a, S> NSGAOptimizer<'a, S>
             parent_pop
                 .iter()
                 .take_while(|c| c.front == 0)
-                .for_each(|c| {
+                .for_each(|mut c| {
                     let vals: Vec<f64> = self.values(&c.sol);
 
                     // Only keep better old values
@@ -81,6 +94,13 @@ impl<'a, S> NSGAOptimizer<'a, S>
 
                     self.best_solutions.push((vals, c.sol.clone()));
                 });
+
+            let mut preprocess_vec = Vec::with_capacity(self.best_solutions.len());
+            for child in self.best_solutions.iter_mut()
+            {
+                preprocess_vec.push(&mut child.1);
+            }
+            runtime_solutions_processor.best_solutions(preprocess_vec);
 
             // Check if there's a good-enough solution already
             if parent_pop
@@ -135,6 +155,13 @@ impl<'a, S> NSGAOptimizer<'a, S>
                 child_pop.push(c1);
                 child_pop.push(c2);
             }
+
+            let mut preprocess_vec = Vec::with_capacity(child_pop.len());
+            for child in child_pop.iter_mut()
+            {
+                preprocess_vec.push(&mut child.sol);
+            }
+            runtime_solutions_processor.new_candidates(preprocess_vec);
 
             parent_pop.extend(child_pop);
 

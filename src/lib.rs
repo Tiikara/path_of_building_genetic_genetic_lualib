@@ -11,6 +11,7 @@ mod fitness_function_calculator;
 mod nsga2;
 mod nsga2_evaluator;
 mod nsga2_lib;
+mod auto_targets;
 
 #[cfg(test)]
 mod tests {

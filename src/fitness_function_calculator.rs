@@ -8,13 +8,46 @@ use crate::targets::Target;
 
 const MIN_TARGET_MULTIPLIER: f64 = 0.01;
 
-
-
 pub struct FitnessFunctionCalculator
 {
-    targets: Vec<Target>,
+    pub targets: Vec<Target>,
     target_normal_nodes_count: f64,
     target_ascendancy_nodes_count: f64
+}
+
+pub struct FitnessFunctionCalculatorStats<'a>
+{
+    stats_env: &'a LuaTable<'a>,
+    actor_outputs: HashMap<String, LuaTable<'a>>,
+    stat_values: HashMap<String, Option<f64>>
+}
+
+impl<'a> FitnessFunctionCalculatorStats<'a>
+{
+    pub fn new(stats_env: &'a LuaTable<'_>) ->  Self
+    {
+        FitnessFunctionCalculatorStats {
+            stats_env,
+            actor_outputs: HashMap::with_capacity(2),
+            stat_values: Default::default(),
+        }
+    }
+
+    pub fn try_get_stat(&mut self, actor: String, stat: String) -> Option<f64> {
+        let actor_output_table = self.actor_outputs
+            .entry(actor.clone())
+            .or_insert_with(|| {
+                let actor_table = self.stats_env.get::<&str, LuaTable>(actor.as_str()).unwrap();
+
+                actor_table.get::<&str, LuaTable>("output").unwrap()
+            });
+
+        self.stat_values
+            .entry(stat.clone())
+            .or_insert_with(|| {
+                actor_output_table.get::<&str, Option<f64>>(stat.as_str()).unwrap()
+            }).clone()
+    }
 }
 
 impl FitnessFunctionCalculator
@@ -28,64 +61,52 @@ impl FitnessFunctionCalculator
         }
     }
 
-    pub fn calculate_and_get_fitness_score(&self, stats_env: &LuaTable, used_normal_node_count: usize, used_ascendancy_node_count: usize) -> f64
+    pub fn calculate_fitness_score_for_target<'a>(&self, stats: &mut FitnessFunctionCalculatorStats<'a>, target: &Target) -> f64
     {
-        let mut actor_outputs = HashMap::with_capacity(2);
+        let stat = stats.try_get_stat(target.actor.clone(), target.stat.clone());
 
+        if target.is_maximize
+        {
+            match stat {
+                None => {
+                    MIN_TARGET_MULTIPLIER
+                }
+                Some(stat_value) => {
+                    stat_value
+                }
+            }
+        }
+        else
+        {
+            match stat {
+                None => {
+                    MIN_TARGET_MULTIPLIER
+                }
+                Some(stat_value) => {
+                    self.calc_target_mul(stat_value, target.weight, target.target, target.lower_is_better)
+                }
+            }
+        }
+    }
+
+    pub fn calculate_and_get_fitness_score<'a>(&self, stats: &mut FitnessFunctionCalculatorStats<'a>, used_normal_node_count: usize, used_ascendancy_node_count: usize) -> f64
+    {
         let mut score = 1.0;
 
         for target in &self.targets
         {
-            let actor_output_table = actor_outputs
-                .entry(target.actor.as_str())
-                .or_insert_with(|| {
-                    let actor_table = stats_env.get::<&str, LuaTable>(target.actor.as_str()).unwrap();
-
-                    actor_table.get::<&str, LuaTable>("output").unwrap()
-                });
-
-            let stat_value: Option<f64> = actor_output_table.get(target.stat.as_str()).unwrap();
-
-            if target.is_maximize
-            {
-                match stat_value {
-                    None => {
-                        score *= MIN_TARGET_MULTIPLIER;
-                    }
-                    Some(stat_value) => {
-                        if target.lower_is_better
-                        {
-                            score /= stat_value * target.weight;
-                        }
-                        else
-                        {
-                            score *= stat_value * target.weight;
-                        }
-                    }
-                }
-            }
-            else
-            {
-                match stat_value {
-                    None => {
-                        score *= MIN_TARGET_MULTIPLIER;
-                    }
-                    Some(stat_value) => {
-                        score *= self.calc_target_mul(stat_value, target.weight, target.target, target.lower_is_better);
-                    }
-                }
-            }
+            score *= self.calculate_fitness_score_for_target(stats, target);
         }
 
-        let player_output_table = actor_outputs
+        /*let player_output_table = actor_outputs
             .entry("player")
             .or_insert_with(|| {
                 let actor_table = stats_env.get::<&str, LuaTable>("player").unwrap();
 
                 actor_table.get::<&str, LuaTable>("output").unwrap()
-            });
+            });*/
 
-        let mut mana_recovery_sum = 0.0;
+        /*let mut mana_recovery_sum = 0.0;
 
         match player_output_table.get::<&str, Option<f64>>("ManaRegenRecovery").unwrap() {
             None => {},
@@ -171,7 +192,7 @@ impl FitnessFunctionCalculator
                     }
                 }
             }
-        }
+        }*/
 
         score
     }
