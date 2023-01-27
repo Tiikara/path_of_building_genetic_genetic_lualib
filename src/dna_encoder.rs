@@ -442,8 +442,20 @@ pub fn create_dna_encoder(build_table: &LuaTable) -> DnaEncoder
     {
         let (node_id, lua_node_table): (i64, LuaTable) = node_entry.unwrap();
 
-        let lua_node_type: String = lua_node_table.get("type").unwrap();
-        let node_name: String = lua_node_table.get("name").unwrap();
+        let lua_node_type =
+            match lua_node_table.get::<&str, Option<String>>("type").unwrap()
+            {
+                None => panic!("Type is not found"),
+                Some(node_name) => node_name
+            };
+
+        let node_name =
+            match lua_node_table.get::<&str, Option<String>>("name").unwrap()
+            {
+                // Cluster nodes doesnt have names
+                None => "".to_string(),
+                Some(node_name) => node_name
+            };
 
         let node_type =
             if lua_node_type == "Mastery"
@@ -521,7 +533,14 @@ pub fn create_dna_encoder(build_table: &LuaTable) -> DnaEncoder
                             let mut masteries_node_indexes = Vec::new();
 
                             let node_table: LuaTable = nodes_table.get(node.id).unwrap();
-                            let mastery_effects_table: LuaTable = node_table.get("masteryEffects").unwrap();
+
+                            let mastery_effects_table =
+                                match node_table.get::<&str, Option<LuaTable>>("masteryEffects").unwrap() {
+                                    // Clusters nodes is typed as Mastery. So hes doesnt have real mastery effect. Skip it
+                                    None => continue,
+                                    Some(mastery_effects_table) => mastery_effects_table
+                                };
+
                             let mut mastery_effects = Vec::new();
 
                             for entry_effect in mastery_effects_table.pairs()
@@ -586,7 +605,12 @@ pub fn create_dna_encoder(build_table: &LuaTable) -> DnaEncoder
     {
         let (_, lua_node_table): (i64, LuaTable) = node_entry.unwrap();
 
-        let table_linked: LuaTable = lua_node_table.get("linked").unwrap();
+        let table_linked =
+            match lua_node_table.get::<&str, Option<LuaTable>>("linked").unwrap()
+            {
+                None => panic!("Linked is not found"),
+                Some(table_linked) => table_linked
+            };
 
         let node_id: i64 = lua_node_table.get("id").unwrap();
 
