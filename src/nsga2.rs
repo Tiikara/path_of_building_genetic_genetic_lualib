@@ -341,6 +341,17 @@ impl<'a, S> NSGAOptimizer<'a, S>
             {
                 for i in 1..last_front_index {
                     if fronts[i].distance != f64::MAX {
+                        if obj.value(&fronts[i + 1].sol) == f64::INFINITY || obj.value(&fronts[i + 1].sol) == f64::NEG_INFINITY
+                        {
+                            if obj.value(&fronts[i - 1].sol) == f64::INFINITY || obj.value(&fronts[i - 1].sol) == f64::NEG_INFINITY
+                            {
+                                continue;
+                            }
+
+                            fronts[i].distance = f64::MAX;
+                            continue;
+                        }
+
                         fronts[i].distance += (obj.value(&fronts[i + 1].sol)
                             - obj.value(&fronts[i - 1].sol))
                             / diff;

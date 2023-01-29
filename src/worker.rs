@@ -133,7 +133,7 @@ fn calculate_targets_for_dna(fitness_function_calculator: &FitnessFunctionCalcul
 {
     for (index_target, target) in fitness_function_calculator.targets.iter().enumerate()
     {
-        dna.fitness_score_targets[index_target] = target.get_maximize_value(stats)//target.calc_fitness_score(&fitness_function_calculator, stats);
+        dna.fitness_score_targets[index_target] = target.calc_fitness_score(&fitness_function_calculator, stats);
     }
 
     dna.fitness_score = fitness_function_calculator.calculate_and_get_fitness_score(stats);
