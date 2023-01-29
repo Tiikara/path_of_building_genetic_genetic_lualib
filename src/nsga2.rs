@@ -126,11 +126,7 @@ impl<'a, S> NSGAOptimizer<'a, S>
                 break;
             }
 
-            // Check if we can already terminate
-            if parent_pop
-                .iter()
-                .map(|c| eval.can_terminate(iter, self.values(&c.sol)))
-                .any(|t| t)
+            if eval.can_terminate(iter, parent_pop.iter().map(|c| self.values(&c.sol)).collect())
             {
                 break;
             }
@@ -331,23 +327,24 @@ impl<'a, S> NSGAOptimizer<'a, S>
                 a_obj.partial_cmp(&b_obj).unwrap()
             });
 
-            let min = self.value(&fronts[0].sol, obj);
-            let max = self.value(&fronts[fronts_len - 1].sol, obj);
+            let last_front_index = fronts_len - 1;
 
-            let mut diff = (max - min) as f64;
-            if diff == 0. {
-                diff = 1.
-            }
+            let min = self.value(&fronts[0].sol, obj);
+            let max = self.value(&fronts[last_front_index].sol, obj);
+
+            let diff = (max - min) as f64;
 
             fronts[0].distance = f64::MAX;
-            fronts[fronts_len - 1].distance = f64::MAX;
+            fronts[last_front_index].distance = f64::MAX;
 
-            for i in 2..fronts_len - 2 {
-                if fronts[i].distance != f64::MAX {
-                    fronts[i].distance += (obj.value(&fronts[i + 1].sol)
-                        - obj.value(&fronts[i - 1].sol))
-                        .abs() as f64
-                        / diff;
+            if diff != 0.
+            {
+                for i in 1..last_front_index {
+                    if fronts[i].distance != f64::MAX {
+                        fronts[i].distance += (obj.value(&fronts[i + 1].sol)
+                            - obj.value(&fronts[i - 1].sol))
+                            / diff;
+                    }
                 }
             }
         }

@@ -1,7 +1,9 @@
+use crate::nsga2_lib::Solution;
+
 /// Evaluate the termination condition
 pub trait Evaluator {
     /// Returns true if an optimization process can be stopped
-    fn can_terminate(&mut self, iter: usize, values: Vec<f64>) -> bool;
+    fn can_terminate(&mut self, iter: usize, values: Vec<Vec<f64>>) -> bool;
 }
 
 /// Implements a default termination condition.
@@ -10,57 +12,58 @@ pub trait Evaluator {
 /// and returns when there was no improvement for the provided
 /// `terminate_early` iterations.
 pub struct DefaultEvaluator {
-    terminate_early: usize,
     iter: usize,
-    values: Option<Vec<f64>>,
-    no_improvements: usize,
+    best_values: Option<Vec<f64>>,
+    no_improvements_count: usize,
+    terminate_early_count: usize
 }
 
 impl DefaultEvaluator {
-    pub fn new(terminate_early: usize) -> Self {
+    pub fn new(terminate_early_count: usize) -> Self {
         DefaultEvaluator {
-            terminate_early,
             iter: 0,
-            values: None,
-            no_improvements: 0,
+            best_values: None,
+            no_improvements_count: 0,
+            terminate_early_count
         }
     }
 }
 
 impl Evaluator for DefaultEvaluator {
-    fn can_terminate(&mut self, iter: usize, values: Vec<f64>) -> bool {
-        match &self.values {
-            None => {
-                self.values = Some(values);
-                self.iter = iter;
+    fn can_terminate(&mut self, _iter: usize, objectives_values: Vec<Vec<f64>>) -> bool {
+        let best_values =
+            match &mut self.best_values {
+                None => {
+                    let best_values = vec![f64::MAX; objectives_values.first().unwrap().len()];
 
-                false
-            }
-            Some(old_best) => {
-                let has_better = old_best
-                    .iter()
-                    .zip(values.iter())
-                    .any(|(old, new)| new < old);
+                    self.best_values = Some(best_values);
 
-                let no_worse = old_best
-                    .iter()
-                    .zip(values.iter())
-                    .all(|(old, new)| new <= old);
+                    self.best_values.as_mut().unwrap()
+                },
+                Some(best_values) => best_values
+            };
 
-                if has_better && no_worse {
-                    self.values = Some(values);
-                    self.iter = iter;
-                    self.no_improvements = 0;
-
-                    false
-                } else if iter == self.iter {
-                    false
-                } else {
-                    self.iter = iter;
-                    self.no_improvements += 1;
-                    self.no_improvements >= self.terminate_early
+        let mut has_better = false;
+        for values in objectives_values.iter()
+        {
+            for (index, value) in values.iter().enumerate() {
+                if *value < best_values[index]
+                {
+                    has_better = true;
+                    best_values[index] = *value;
                 }
             }
+        }
+
+        if has_better
+        {
+            self.no_improvements_count = 0;
+            false
+        }
+        else
+        {
+            self.no_improvements_count += 1;
+            self.no_improvements_count >= self.terminate_early_count
         }
     }
 }

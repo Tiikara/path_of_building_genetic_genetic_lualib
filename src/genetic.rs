@@ -193,7 +193,7 @@ impl<'a> Meta<'a, Dna> for Params<'a> {
     }
 
     fn crossover_odds(&self) -> &'a Ratio {
-        &Ratio(1, 2)
+        &Ratio(1, 1)
     }
 
     fn mutation_odds(&self) -> &'a Ratio {

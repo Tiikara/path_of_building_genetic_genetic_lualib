@@ -4,6 +4,7 @@ pub trait Target: Send + Sync
 {
     fn clone_dyn(&self) -> Box<dyn Target>;
     fn calc_fitness_score(&self, fitness_function_calculator: &FitnessFunctionCalculator, stats: &mut FitnessFunctionCalculatorStats) -> f64;
+    fn maximize_value(&self, stats: &mut FitnessFunctionCalculatorStats) -> f64;
 }
 
 impl Clone for Box<dyn Target> {

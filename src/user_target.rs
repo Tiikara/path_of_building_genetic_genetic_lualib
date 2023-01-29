@@ -47,6 +47,33 @@ impl Target for UserTarget
             }
         }
     }
+
+    fn maximize_value(&self, stats: &mut FitnessFunctionCalculatorStats) -> f64 {
+        let stat = stats.try_get_stat(self.actor.clone(), self.stat.clone());
+
+        if self.lower_is_better
+        {
+            match stat {
+                None => {
+                    f64::MIN
+                }
+                Some(stat_value) => {
+                    -stat_value
+                }
+            }
+        }
+        else
+        {
+            match stat {
+                None => {
+                    f64::MIN
+                }
+                Some(stat_value) => {
+                    stat_value
+                }
+            }
+        }
+    }
 }
 
 pub fn create_targets_from_tables(targets_table: LuaTable, maximize_table: LuaTable) -> Vec<UserTarget>
