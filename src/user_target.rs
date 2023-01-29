@@ -48,14 +48,14 @@ impl Target for UserTarget
         }
     }
 
-    fn maximize_value(&self, stats: &mut FitnessFunctionCalculatorStats) -> f64 {
+    fn get_maximize_value(&self, stats: &mut FitnessFunctionCalculatorStats) -> f64 {
         let stat = stats.try_get_stat(self.actor.clone(), self.stat.clone());
 
         if self.lower_is_better
         {
             match stat {
                 None => {
-                    f64::MIN
+                    0.0
                 }
                 Some(stat_value) => {
                     -stat_value
@@ -66,7 +66,7 @@ impl Target for UserTarget
         {
             match stat {
                 None => {
-                    f64::MIN
+                    0.0
                 }
                 Some(stat_value) => {
                     stat_value

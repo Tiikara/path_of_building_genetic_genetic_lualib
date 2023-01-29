@@ -38,7 +38,7 @@ impl Target for AutoTargetManaRegen
         }
     }
 
-    fn maximize_value(&self, stats: &mut FitnessFunctionCalculatorStats) -> f64 {
+    fn get_maximize_value(&self, stats: &mut FitnessFunctionCalculatorStats) -> f64 {
         let mut mana_recovery_sum = 0.0;
 
         match stats.try_get_stat(String::from("player"), String::from("ManaRegenRecovery")) {
@@ -87,10 +87,10 @@ impl Target for AutoTargetManaCost
         }
     }
 
-    fn maximize_value(&self, stats: &mut FitnessFunctionCalculatorStats) -> f64 {
+    fn get_maximize_value(&self, stats: &mut FitnessFunctionCalculatorStats) -> f64 {
         match stats.try_get_stat(String::from("player"), String::from("ManaUnreserved")) {
             None => {
-                f64::MIN
+                0.0
             },
             Some(unreserved_mana) => {
                 unreserved_mana
@@ -137,10 +137,10 @@ impl Target for AutoTargetFromStatToStat
         }
     }
 
-    fn maximize_value(&self, stats: &mut FitnessFunctionCalculatorStats) -> f64 {
+    fn get_maximize_value(&self, stats: &mut FitnessFunctionCalculatorStats) -> f64 {
         match stats.try_get_stat(String::from("player"),  self.current_stat_name.clone()) {
             None => {
-                f64::MIN
+                0.0
             },
             Some(stat) => {
                 stat
