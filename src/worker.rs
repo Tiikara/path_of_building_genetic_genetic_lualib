@@ -10,7 +10,7 @@ use crate::dna::Dna;
 use crate::dna_encoder::{create_dna_encoder, DnaEncoder};
 use crate::fitness_function_calculator::{FitnessFunctionCalculator, FitnessFunctionCalculatorStats};
 
-use crate::genetic::{DnaCommand, Session};
+use crate::pob_solver::{DnaCommand, Session};
 use crate::user_target::create_tables_from_targets;
 
 #[derive(Clone)]

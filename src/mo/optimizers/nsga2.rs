@@ -5,8 +5,9 @@ use rand::seq::SliceRandom;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::convert::identity;
-use crate::nsga2_evaluator::Evaluator;
-use crate::nsga2_lib::{Meta, Objective, Ratio, Solution};
+use crate::mo::evaluator::Evaluator;
+use crate::mo::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
+use crate::mo::optimizer::Optimizer;
 
 type SolutionId = u64;
 
@@ -19,39 +20,22 @@ struct Candidate<S: Solution> {
 }
 
 /// NSGA-II optimizer
-pub struct NSGAOptimizer<'a, S: Solution> {
+pub struct NSGA2Optimizer<'a, S: Solution> {
     meta: Box<dyn Meta<'a, S> + 'a>,
     last_id: SolutionId,
     best_solutions: Vec<(Vec<f64>, S)>,
 }
 
-pub trait SolutionsRuntimeProcessor<S: Solution> {
-    fn new_candidates(&mut self, candidates: Vec<&mut S>);
-    fn iter_solutions(&mut self, candidates: Vec<&mut S>);
-    fn iteration_num(&mut self, num: usize);
-    fn needs_early_stop(&mut self) -> bool;
-}
-
-impl<'a, S> NSGAOptimizer<'a, S>
+impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
     where
         S: Solution,
 {
-    /// Instantiate a new optimizer with a given meta params
-    pub fn new(meta: impl Meta<'a, S> + 'a) -> Self {
-        NSGAOptimizer {
-            meta: Box::new(meta),
-            last_id: 0,
-            best_solutions: Vec::new(),
-        }
-    }
-
     /// Run an optimization process using `eval` to determine termination condition
     ///
     /// Since an optimization can produce a set of
     /// [Pareto optimal solutions](https://en.wikipedia.org/wiki/Pareto_front),
     /// the optimizer returns an iterator.
-    pub fn optimize(&mut self, mut eval: Box<dyn Evaluator>,
-                    mut runtime_solutions_processor: Box<dyn SolutionsRuntimeProcessor<S>>) -> impl Iterator<Item = S> {
+    fn optimize(&mut self, mut eval: Box<dyn Evaluator>, mut runtime_solutions_processor: Box<dyn SolutionsRuntimeProcessor<S>>) {
         let mut rnd = rand::thread_rng();
 
         let pop_size = self.meta.population_size();
@@ -200,9 +184,20 @@ impl<'a, S> NSGAOptimizer<'a, S>
 
             parent_pop = next_pop;
         }
+    }
+}
 
-        let best = std::mem::take(&mut self.best_solutions);
-        best.into_iter().map(|s| s.1)
+impl<'a, S> NSGA2Optimizer<'a, S>
+    where
+        S: Solution,
+{
+    /// Instantiate a new optimizer with a given meta params
+    pub fn new(meta: impl Meta<'a, S> + 'a) -> Self {
+        NSGA2Optimizer {
+            meta: Box::new(meta),
+            last_id: 0,
+            best_solutions: Vec::new(),
+        }
     }
 
     fn next_id(&mut self) -> SolutionId {

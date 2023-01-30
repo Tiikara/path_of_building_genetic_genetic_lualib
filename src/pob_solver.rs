@@ -15,9 +15,10 @@ use rand::{thread_rng};
 use crate::auto_targets::{AutoTargetFromStatToStat, AutoTargetManaCost, AutoTargetManaRegen};
 
 use crate::dna::{Dna, DnaData, LuaDna};
-use crate::nsga2::{NSGAOptimizer, SolutionsRuntimeProcessor};
-use crate::nsga2_evaluator::DefaultEvaluator;
-use crate::nsga2_lib::{Constraint, Meta, Objective, Ratio, Solution};
+use crate::mo::{Constraint, Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
+use crate::mo::evaluator::DefaultEvaluator;
+use crate::mo::optimizer::Optimizer;
+use crate::mo::optimizers::nsga2::NSGA2Optimizer;
 use crate::target::Target;
 use crate::user_target::{create_targets_from_tables};
 use crate::worker::worker_main;
@@ -471,8 +472,8 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
         constraints: vec![]
     };
 
-    let mut optimizer = NSGAOptimizer::new(meta);
-    let _ = optimizer
+    let mut optimizer = NSGA2Optimizer::new(meta);
+    optimizer
         .optimize(
             Box::new(DefaultEvaluator::new(stop_generations_eps)),
             Box::new(SolutionsRuntimeDnaProcessor {

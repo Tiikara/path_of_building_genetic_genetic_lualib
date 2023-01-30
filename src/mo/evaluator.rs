@@ -1,5 +1,3 @@
-use crate::nsga2_lib::Solution;
-
 /// Evaluate the termination condition
 pub trait Evaluator {
     /// Returns true if an optimization process can be stopped

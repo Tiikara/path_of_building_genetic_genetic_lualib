@@ -1,3 +1,7 @@
+pub mod evaluator;
+pub mod optimizer;
+pub mod optimizers;
+
 use std::fmt::Debug;
 
 /// A simple ratio type
@@ -69,4 +73,11 @@ pub trait Meta<'a, S: Solution> {
 
     /// Return an optional list of optimization constraints
     fn constraints(&self) -> &Vec<Box<dyn Constraint<S> + 'a>>;
+}
+
+pub trait SolutionsRuntimeProcessor<S: Solution> {
+    fn new_candidates(&mut self, candidates: Vec<&mut S>);
+    fn iter_solutions(&mut self, candidates: Vec<&mut S>);
+    fn iteration_num(&mut self, num: usize);
+    fn needs_early_stop(&mut self) -> bool;
 }

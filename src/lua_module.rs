@@ -2,7 +2,7 @@ use std::{fs, panic};
 use mlua::Lua;
 use mlua::prelude::{LuaResult, LuaTable};
 use crate::dna_encoder::{create_dna_encoder, lua_create_dna_encoder};
-use crate::genetic::{create_genetic_solver};
+use crate::pob_solver::{create_genetic_solver};
 
 #[mlua::lua_module]
 fn path_of_building_genetic_solver(lua: &Lua) -> LuaResult<LuaTable> {
