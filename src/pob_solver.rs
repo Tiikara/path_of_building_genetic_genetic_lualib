@@ -17,8 +17,8 @@ use crate::auto_targets::{AutoTargetFromStatToStat, AutoTargetManaCost, AutoTarg
 use crate::dna::{Dna, DnaData, LuaDna};
 use crate::mo::{Constraint, Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
 use crate::mo::evaluator::DefaultEvaluator;
-use crate::mo::optimizer::Optimizer;
 use crate::mo::optimizers::nsga2::NSGA2Optimizer;
+use crate::mo::optimizers::Optimizer;
 use crate::target::Target;
 use crate::user_target::{create_targets_from_tables};
 use crate::worker::worker_main;

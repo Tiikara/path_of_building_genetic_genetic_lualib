@@ -1,5 +1,4 @@
 pub mod evaluator;
-pub mod optimizer;
 pub mod optimizers;
 
 use std::fmt::Debug;

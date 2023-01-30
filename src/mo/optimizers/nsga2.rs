@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::identity;
 use crate::mo::evaluator::Evaluator;
 use crate::mo::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
-use crate::mo::optimizer::Optimizer;
+use crate::mo::optimizers::Optimizer;
 
 type SolutionId = u64;
 
