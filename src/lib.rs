@@ -11,12 +11,3 @@ mod fitness_function_calculator;
 mod auto_targets;
 pub mod target;
 mod mo;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
-}

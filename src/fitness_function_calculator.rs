@@ -66,7 +66,7 @@ impl FitnessFunctionCalculator
         score
     }
 
-    pub(crate) fn calc_target_mul(&self, mut x: f64, weight: f64, mut target: f64, lower_is_better: bool) -> f64
+    pub(crate) fn calc_target_mul(&self, mut x: f64, _weight: f64, mut target: f64, lower_is_better: bool) -> f64
     {
         if x < 0.0
         {

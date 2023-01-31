@@ -1,8 +1,7 @@
-use std::borrow::{BorrowMut};
 use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
-use std::sync::{Arc, LockResult, RwLock};
+use std::sync::{Arc, RwLock};
 use crossbeam::channel::{Receiver, Sender};
 use mlua::{Function, Lua, LuaOptions, StdLib, UserData};
 use mlua::prelude::{LuaMultiValue, LuaResult, LuaString, LuaTable, LuaValue};
@@ -11,7 +10,6 @@ use crate::dna_encoder::{create_dna_encoder, DnaEncoder};
 use crate::fitness_function_calculator::{FitnessFunctionCalculator, FitnessFunctionCalculatorStats};
 
 use crate::pob_solver::{DnaCommand, Session};
-use crate::user_target::create_tables_from_targets;
 
 #[derive(Clone)]
 pub struct LuaDnaCommand
@@ -108,7 +106,7 @@ pub fn worker_main(reader_dna_queue_channel: Receiver<Box<DnaCommand>>,
 
         let mut iteration_session_runtime = session_process_runtime.take().unwrap();
 
-        let dna_convert_result =
+        let _dna_convert_result =
             iteration_session_runtime.dna_encoder.convert_dna_to_build(
                 &lua_build,
                 dna_command.dna.as_ref().unwrap(),

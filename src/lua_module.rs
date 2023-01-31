@@ -1,7 +1,7 @@
 use std::{fs, panic};
 use mlua::Lua;
 use mlua::prelude::{LuaResult, LuaTable};
-use crate::dna_encoder::{create_dna_encoder, lua_create_dna_encoder};
+use crate::dna_encoder::{lua_create_dna_encoder};
 use crate::pob_solver::{create_genetic_solver};
 
 #[mlua::lua_module]
