@@ -21,6 +21,16 @@ fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySoluti
     optimizer.best_solutions()
 }
 
+fn mean_convergence_metric_for_solutions(problem: &Box<dyn Problem>, solutions: &Vec<(Vec<f64>, ArraySolution)>) -> f64
+{
+    let sum = solutions
+        .iter()
+        .map(|solution| problem.convergence_metric(&solution.1.x))
+        .sum::<f64>();
+
+    sum / solutions.len() as f64
+}
+
 fn print_best_solutions_3d_to_image(problem: &Box<dyn Problem>,
                                     optimizer: &Box<dyn Optimizer<ArraySolution>>,
                                     best_solutions: &Vec<(Vec<f64>, ArraySolution)>,
@@ -30,7 +40,7 @@ fn print_best_solutions_3d_to_image(problem: &Box<dyn Problem>,
     root.fill(&WHITE).unwrap();
     let mut chart = ChartBuilder::on(&root)
         .margin(20)
-        .caption(format!("{} - {}", problem.name(), optimizer.name()), ("sans-serif", 40))
+        .caption(format!("{} - {} [{:.2}]", problem.name(), optimizer.name(), problem.convergence_metric(&best_solutions.first().unwrap().1.x)), ("sans-serif", 40))
         .build_cartesian_3d(0.0..0.6, 0.0..0.6, 0.0..0.6)
         .unwrap();
     chart.configure_axes().draw().unwrap();
@@ -103,7 +113,7 @@ impl ProblemsSolver
             })
     }
 
-    fn calc_best_solutions_and_print_to_3d_images(&self, dir: &std::path::Path)
+    fn calc_best_solutions_and_print_to_3d_plots(&self, dir: &std::path::Path)
     {
         for iter_item in self.iter_optimizer_problem_best_solution()
         {
@@ -118,40 +128,34 @@ impl ProblemsSolver
         }
     }
 
-    fn calc_metric(&self, dir: &std::path::Path)
+    fn calc_metric(&self, repeat_count: usize, dir: &std::path::Path)
     {
-        for iter_item in self.iter_optimizer_problem_best_solution()
-        {
-            let test_problem = iter_item.1;
-            let optimizer = iter_item.0;
-            let best_solutions = iter_item.2;
+        self.optimizer_creators
+            .iter()
+            .cartesian_product(&self.test_problems)
+            .for_each(|problematic| {
+                let mut summ_metric = 0.0;
 
-            let best_solution = best_solutions.first().unwrap();
+                for _ in 0..repeat_count
+                {
+                    let array_optimizer_params = new_array_optimizer_params(problematic.1.0.clone());
 
-            println!("{}", test_problem.1.convergence_metric(&best_solution.1.x));
-        }
+                    let mut optimizer = problematic.0(array_optimizer_params);
+
+                    println!("Optimizing {} - {}", optimizer.name(), problematic.1.1.name());
+
+                    let best_solutions = optimize_and_get_best_solutions(&mut optimizer, 10);
+
+                    summ_metric += mean_convergence_metric_for_solutions(&problematic.1.1, &best_solutions);
+                }
+
+                println!("{}", summ_metric / repeat_count as f64);
+            });
     }
 }
 
 #[test]
 fn print_3d_images_for_optimizers() {
-    let problem_solver = ProblemsSolver::new(
-        vec![
-            ProblemsSolver::create_test_problem(&Dtlz1::new(7, 3)),
-            ProblemsSolver::create_test_problem(&Dtlz1::new(15, 3)),
-            ProblemsSolver::create_test_problem(&Dtlz1::new(20, 3)),
-            ProblemsSolver::create_test_problem(&Dtlz1::new(30, 3))
-        ],
-        vec![
-            Box::new(|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)))
-        ]
-    );
-
-    problem_solver.calc_best_solutions_and_print_to_3d_images(std::path::Path::new("D:/tmp/test_optimizers"));
-}
-
-#[test]
-fn calc_output_metric_for_optimizers() {
     let problem_solver = ProblemsSolver::new(
         vec![
             ProblemsSolver::create_test_problem(&Dtlz1::new(4, 3)),
@@ -165,5 +169,33 @@ fn calc_output_metric_for_optimizers() {
         ]
     );
 
-    problem_solver.calc_metric(std::path::Path::new("D:/tmp/test_optimizers"));
+    problem_solver.calc_best_solutions_and_print_to_3d_plots(std::path::Path::new("D:/tmp/test_optimizers"));
+}
+
+#[test]
+fn calc_output_metric_for_optimizers() {
+
+    let mut test_problems = vec![];
+
+    for n_var in vec![4, 7, 15, 20]
+    {
+        for n_obj in vec![3, 5, 10, 15]
+        {
+            if n_obj >= n_var
+            {
+                continue
+            }
+
+            test_problems.push(ProblemsSolver::create_test_problem(&Dtlz1::new(n_var, n_obj)));
+        }
+    }
+
+    let problem_solver = ProblemsSolver::new(
+        test_problems,
+        vec![
+            Box::new(|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)))
+        ]
+    );
+
+    problem_solver.calc_metric(1, std::path::Path::new("D:/tmp/test_optimizers"));
 }
