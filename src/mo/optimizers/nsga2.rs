@@ -30,6 +30,10 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
     where
         S: Solution,
 {
+    fn name(&self) -> &str {
+        "NSGA-II"
+    }
+
     /// Run an optimization process using `eval` to determine termination condition
     ///
     /// Since an optimization can produce a set of
@@ -397,8 +401,7 @@ impl<'a, S> NSGA2Optimizer<'a, S>
         let vals1 = self.values(s1);
         let vals2 = self.values(s2);
 
-        let vals: Vec<_> = vals1.into_iter().zip(vals2).collect();
-
-        vals.iter().all(|(v1, v2)| v1 <= v2) && vals.iter().any(|(v1, v2)| v1 < v2)
+        vals1.iter().zip(&vals2).all(|(v1, v2)| *v1 <= *v2) &&
+            vals1.iter().zip(&vals2).any(|(v1, v2)| *v1 < *v2)
     }
 }

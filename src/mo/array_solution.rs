@@ -163,7 +163,7 @@ impl<'a> Meta<'a, ArraySolution> for ArrayOptimizerParams {
 
         ArraySolution {
             x,
-            f: Vec::new(),
+            f: Vec::with_capacity(self.array_evaluator.objectives_len()),
             array_evaluator: self.array_evaluator.clone()
         }
     }

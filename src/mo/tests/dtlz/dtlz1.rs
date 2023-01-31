@@ -1,10 +1,13 @@
+use std::fmt::format;
 use rand::{Rng, thread_rng};
 use crate::mo::array_solution::ArraySolutionEvaluator;
+use crate::mo::problem::Problem;
 use crate::mo::tests::dtlz::{g1};
 
 #[derive(Clone)]
 pub struct Dtlz1
 {
+    name: String,
     n_var: usize,
     n_obj: usize
 }
@@ -13,9 +16,27 @@ impl Dtlz1 {
     pub fn new(n_var: usize, n_obj: usize) -> Self
     {
         Dtlz1 {
+            name: format!("DTLZ1 ({} {})", n_var, n_obj),
             n_var,
             n_obj
         }
+    }
+}
+
+impl Problem for Dtlz1
+{
+    fn clone_dyn(&self) -> Box<dyn Problem> {
+        Box::new(self.clone())
+    }
+
+    fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    fn convergence_metric(&self, in_x: &[f64]) -> f64 {
+        let x_m = &in_x[self.n_obj - 1..];
+
+        g1(x_m)
     }
 }
 
