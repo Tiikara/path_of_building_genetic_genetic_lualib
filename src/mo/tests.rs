@@ -1,6 +1,9 @@
+use std::collections::{HashMap, HashSet};
+use std::fs::File;
 use std::iter::{Map, Zip};
 use std::slice::Iter;
 use itertools::Itertools;
+use markdown_table::MarkdownTable;
 use plotters::backend::BitMapBackend;
 use plotters::prelude::*;
 use crate::mo::array_solution::{ArrayOptimizerParams, ArraySolution, ArraySolutionEvaluator, SolutionsRuntimeArrayProcessor};
@@ -10,6 +13,9 @@ use crate::mo::optimizers::Optimizer;
 use crate::mo::problem::Problem;
 use crate::mo::Ratio;
 use crate::mo::tests::dtlz::dtlz1::Dtlz1;
+use std::io::Write;
+use std::sync::mpsc::channel;
+use std::sync::{Arc, Mutex};
 
 mod dtlz;
 
@@ -21,7 +27,7 @@ fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySoluti
     optimizer.best_solutions()
 }
 
-fn mean_convergence_metric_for_solutions(problem: &Box<dyn Problem>, solutions: &Vec<(Vec<f64>, ArraySolution)>) -> f64
+fn mean_convergence_metric_for_solutions(problem: &Box<dyn Problem + Send>, solutions: &Vec<(Vec<f64>, ArraySolution)>) -> f64
 {
     let sum = solutions
         .iter()
@@ -31,7 +37,7 @@ fn mean_convergence_metric_for_solutions(problem: &Box<dyn Problem>, solutions: 
     sum / solutions.len() as f64
 }
 
-fn print_best_solutions_3d_to_image(problem: &Box<dyn Problem>,
+fn print_best_solutions_3d_to_image(problem: &Box<dyn Problem + Send>,
                                     optimizer: &Box<dyn Optimizer<ArraySolution>>,
                                     best_solutions: &Vec<(Vec<f64>, ArraySolution)>,
                                     path: &std::path::Path)
@@ -76,13 +82,13 @@ fn new_array_optimizer_params(array_solution_evaluator: Box<dyn ArraySolutionEva
 
 struct ProblemsSolver
 {
-    test_problems: Vec<(Box<dyn ArraySolutionEvaluator>, Box<dyn Problem>)>,
-    optimizer_creators: Vec<Box<dyn Fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution>>>>
+    test_problems: Vec<(Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>)>,
+    optimizer_creators: Vec<Arc<dyn Fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution>> + Send + Sync>>
 }
 
 impl ProblemsSolver
 {
-    pub fn new(test_problems: Vec<(Box<dyn ArraySolutionEvaluator>, Box<dyn Problem>)>, optimizer_creators: Vec<Box<dyn Fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution>>>>) -> Self
+    pub fn new(test_problems: Vec<(Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>)>, optimizer_creators: Vec<Arc<dyn Fn(ArrayOptimizerParams) -> Box<dyn Optimizer<ArraySolution>> + Send + Sync>>) -> Self
     {
         ProblemsSolver {
             test_problems,
@@ -90,12 +96,12 @@ impl ProblemsSolver
         }
     }
 
-    fn create_test_problem<T: ArraySolutionEvaluator + Problem + Clone + 'static>(problem: &T) -> (Box<dyn ArraySolutionEvaluator>, Box<dyn Problem>)
+    fn create_test_problem<T: ArraySolutionEvaluator + Send + Problem + Clone + 'static>(problem: &T) -> (Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>)
     {
         (Box::new(problem.clone()), Box::new(problem.clone()))
     }
 
-    fn iter_optimizer_problem_best_solution(&self) -> impl Iterator<Item = (Box<dyn Optimizer<ArraySolution>>, &(Box<dyn ArraySolutionEvaluator>, Box<dyn Problem>), Vec<(Vec<f64>, ArraySolution)>)>
+    fn iter_optimizer_problem_best_solution(&self) -> impl Iterator<Item = (Box<dyn Optimizer<ArraySolution>>, &(Box<dyn ArraySolutionEvaluator + Send>, Box<dyn Problem + Send>), Vec<(Vec<f64>, ArraySolution)>)>
     {
         self.optimizer_creators
             .iter()
@@ -130,27 +136,104 @@ impl ProblemsSolver
 
     fn calc_metric(&self, repeat_count: usize, dir: &std::path::Path)
     {
-        self.optimizer_creators
-            .iter()
-            .cartesian_product(&self.test_problems)
-            .for_each(|problematic| {
-                let mut summ_metric = 0.0;
+        let mut optimizer_names: Arc<tokio::sync::Mutex<HashSet<String>>> = Arc::new(tokio::sync::Mutex::new(HashSet::new()));
 
-                for _ in 0..repeat_count
+        let mut table_lines = Vec::new();
+
+        let mut multi_threaded_runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+
+        let optimizer_names_task = optimizer_names.clone();
+        multi_threaded_runtime.block_on(async move {
+            let mut tasks = vec![];
+
+            for test_problem in &self.test_problems
+            {
+                let mut problems_results_table = vec!["".to_string(); self.optimizer_creators.len() + 1];
+
+                problems_results_table[0] = test_problem.1.name().to_string();
+
+                let test_problem_index = table_lines.len();
+
+                for (optimizer_index, optimizer_creator) in self.optimizer_creators.iter().enumerate()
                 {
-                    let array_optimizer_params = new_array_optimizer_params(problematic.1.0.clone());
+                    let array_solution_evaluator = test_problem.0.clone();
+                    let problem = test_problem.1.clone();
+                    let optimizer_creator = (*optimizer_creator).clone();
 
-                    let mut optimizer = problematic.0(array_optimizer_params);
+                    let optimizer_names = optimizer_names_task.clone();
+                    tasks.push(tokio::spawn(async move {
+                        let mut tasks = vec![];
 
-                    println!("Optimizing {} - {}", optimizer.name(), problematic.1.1.name());
+                        for _ in 0..repeat_count
+                        {
+                            let array_solution_evaluator = array_solution_evaluator.clone();
+                            let problem = problem.clone();
 
-                    let best_solutions = optimize_and_get_best_solutions(&mut optimizer, 10);
+                            let optimizer_creator = optimizer_creator.clone();
+                            let optimizer_names = optimizer_names.clone();
+                            tasks.push(tokio::spawn(async move {
+                                let (optimizer_name, metric) =
+                                    {
+                                        let array_optimizer_params = new_array_optimizer_params(array_solution_evaluator);
 
-                    summ_metric += mean_convergence_metric_for_solutions(&problematic.1.1, &best_solutions);
+                                        let mut optimizer = optimizer_creator(array_optimizer_params);
+
+                                        println!("Optimizing {} - {}", optimizer.name(), problem.name());
+
+                                        let best_solutions = optimize_and_get_best_solutions(&mut optimizer, 100);
+
+                                        let optimizer_name = optimizer.name().to_string();
+
+                                        let metric = mean_convergence_metric_for_solutions(&problem, &best_solutions);
+
+                                        (optimizer_name, metric)
+                                    };
+
+                                {
+                                    optimizer_names.lock().await.insert(optimizer_name);
+                                }
+
+                                metric
+                            }));
+                        }
+
+                        let mut summ_metric = 0.0;
+
+                        for task in tasks
+                        {
+                            summ_metric += task.await.unwrap();
+                        }
+
+                        (optimizer_index + 1, test_problem_index, summ_metric / repeat_count as f64)
+                    }));
                 }
 
-                println!("{}", summ_metric / repeat_count as f64);
-            });
+                table_lines.push(problems_results_table);
+            }
+
+            for task in tasks
+            {
+                let result = task.await.unwrap();
+
+                table_lines[result.1][result.0] = format!("{:.2}", result.2);
+            }
+
+            let mut optimizers_title = vec!["".to_string()];
+
+            for optimizer_name in optimizer_names.lock().await.iter()
+            {
+                optimizers_title.push(optimizer_name.clone());
+            }
+
+            table_lines.insert(0, optimizers_title);
+
+            let table = MarkdownTable::new(table_lines);
+
+            println!("{}", table.to_string());
+
+            let mut output = File::create(dir.join("metric.html")).unwrap();
+            write!(output, "{}", table.to_string()).unwrap();
+        });
     }
 }
 
@@ -165,7 +248,7 @@ fn print_3d_images_for_optimizers() {
             ProblemsSolver::create_test_problem(&Dtlz1::new(30, 3))
         ],
         vec![
-            Box::new(|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)))
+            Arc::new(|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)))
         ]
     );
 
@@ -177,9 +260,9 @@ fn calc_output_metric_for_optimizers() {
 
     let mut test_problems = vec![];
 
-    for n_var in vec![4, 7, 15, 20]
+    for n_var in vec![4, 7, 15, 20, 30]
     {
-        for n_obj in vec![3, 5, 10, 15]
+        for n_obj in vec![3, 5, 10, 15, 25]
         {
             if n_obj >= n_var
             {
@@ -193,9 +276,9 @@ fn calc_output_metric_for_optimizers() {
     let problem_solver = ProblemsSolver::new(
         test_problems,
         vec![
-            Box::new(|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)))
+            Arc::new(|optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)))
         ]
     );
 
-    problem_solver.calc_metric(1, std::path::Path::new("D:/tmp/test_optimizers"));
+    problem_solver.calc_metric(10, std::path::Path::new("D:/tmp/test_optimizers"));
 }
