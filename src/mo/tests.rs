@@ -180,7 +180,7 @@ impl ProblemsSolver
 
                                         println!("Optimizing {} - {}", optimizer.name(), problem.name());
 
-                                        let best_solutions = optimize_and_get_best_solutions(&mut optimizer, 100);
+                                        let best_solutions = optimize_and_get_best_solutions(&mut optimizer, 10);
 
                                         let optimizer_name = optimizer.name().to_string();
 

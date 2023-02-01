@@ -1,11 +1,10 @@
 use std::fmt::{Debug, Formatter};
+use dyn_clone::DynClone;
 use rand::{Rng, thread_rng};
 use crate::mo::{Constraint, Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
 
-pub trait ArraySolutionEvaluator
+pub trait ArraySolutionEvaluator: DynClone
 {
-    fn clone_dyn(&self) -> Box<dyn ArraySolutionEvaluator>;
-    fn clone_dyn_send(&self) -> Box<dyn ArraySolutionEvaluator + Send>;
     fn calculate_objectives(&self, x: &Vec<f64>, f: &mut Vec<f64>);
     fn x_len(&self) -> usize;
     fn objectives_len(&self) -> usize;
@@ -13,17 +12,7 @@ pub trait ArraySolutionEvaluator
     fn max_x_value(&self) -> f64;
 }
 
-impl Clone for Box<dyn ArraySolutionEvaluator> {
-    fn clone(&self) -> Self {
-        self.clone_dyn()
-    }
-}
-
-impl Clone for Box<dyn ArraySolutionEvaluator + Send> {
-    fn clone(&self) -> Self {
-        self.clone_dyn_send()
-    }
-}
+dyn_clone::clone_trait_object!(ArraySolutionEvaluator);
 
 #[derive(Clone)]
 pub struct ArraySolution

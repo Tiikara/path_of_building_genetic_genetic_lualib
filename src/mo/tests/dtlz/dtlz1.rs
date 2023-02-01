@@ -25,14 +25,6 @@ impl Dtlz1 {
 
 impl Problem for Dtlz1
 {
-    fn clone_dyn(&self) -> Box<dyn Problem> {
-        Box::new(self.clone())
-    }
-
-    fn clone_dyn_send(&self) -> Box<dyn Problem + Send> {
-        Box::new(self.clone())
-    }
-
     fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -46,14 +38,6 @@ impl Problem for Dtlz1
 
 impl ArraySolutionEvaluator for Dtlz1
 {
-    fn clone_dyn(&self) -> Box<dyn ArraySolutionEvaluator> {
-        Box::new(self.clone())
-    }
-
-    fn clone_dyn_send(&self) -> Box<dyn ArraySolutionEvaluator + Send> {
-        Box::new(self.clone())
-    }
-
     fn calculate_objectives(&self, in_x: &Vec<f64>, f: &mut Vec<f64>) {
         let x = &in_x[..self.n_obj - 1];
         let x_m = &in_x[self.n_obj - 1..];
