@@ -2,28 +2,28 @@ use std::fmt::format;
 use rand::{Rng, thread_rng};
 use crate::mo::array_solution::ArraySolutionEvaluator;
 use crate::mo::problem::Problem;
-use crate::mo::tests::dtlz::{g1};
+use crate::mo::tests::dtlz::{calc_spherical_target, g1, g2};
 
 #[derive(Clone)]
-pub struct Dtlz1
+pub struct Dtlz2
 {
     name: String,
     n_var: usize,
     n_obj: usize
 }
 
-impl Dtlz1 {
+impl Dtlz2 {
     pub fn new(n_var: usize, n_obj: usize) -> Self
     {
-        Dtlz1 {
-            name: format!("DTLZ1 ({} {})", n_var, n_obj),
+        Dtlz2 {
+            name: format!("DTLZ2 ({} {})", n_var, n_obj),
             n_var,
             n_obj
         }
     }
 }
 
-impl Problem for Dtlz1
+impl Problem for Dtlz2
 {
     fn name(&self) -> &str {
         self.name.as_str()
@@ -32,19 +32,19 @@ impl Problem for Dtlz1
     fn convergence_metric(&self, in_x: &[f64]) -> f64 {
         let x_m = &in_x[self.n_obj - 1..];
 
-        g1(x_m)
+        g2(x_m)
     }
 
     fn plot_3d_max_x(&self) -> f64 {
-        0.6
+        1.1
     }
 
     fn plot_3d_max_y(&self) -> f64 {
-        0.6
+        1.1
     }
 
     fn plot_3d_max_z(&self) -> f64 {
-        0.6
+        1.1
     }
 
     fn plot_3d_min_x(&self) -> f64 {
@@ -60,35 +60,20 @@ impl Problem for Dtlz1
     }
 }
 
-impl ArraySolutionEvaluator for Dtlz1
+impl ArraySolutionEvaluator for Dtlz2
 {
     fn calculate_objectives(&self, in_x: &Vec<f64>, f: &mut Vec<f64>) {
         let x = &in_x[..self.n_obj - 1];
         let x_m = &in_x[self.n_obj - 1..];
 
-        let g = g1(x_m);
+        let g = g2(x_m);
 
         if f.len() != self.n_obj
         {
             f.resize(self.n_obj, 0.0);
         }
 
-        for i in 0..self.n_obj
-        {
-            let mut f_val = 0.5 * (1.0 + g);
-
-            for x_i in &x[..x.len() - i]
-            {
-                f_val *= x_i;
-            }
-
-            if i > 0
-            {
-                f_val *= 1.0 - x[x.len() - i];
-            }
-
-            f[i] = f_val;
-        }
+        calc_spherical_target(x, g, 1.0, f);
     }
 
     fn x_len(&self) -> usize {

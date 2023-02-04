@@ -2,49 +2,61 @@ use std::fmt::format;
 use rand::{Rng, thread_rng};
 use crate::mo::array_solution::ArraySolutionEvaluator;
 use crate::mo::problem::Problem;
-use crate::mo::tests::dtlz::{g1};
+use crate::mo::tests::dtlz::{calc_spherical_target, g1, g2, g3};
 
 #[derive(Clone)]
-pub struct Dtlz1
+pub struct Dtlz7
 {
     name: String,
     n_var: usize,
     n_obj: usize
 }
 
-impl Dtlz1 {
+fn g(x_m: &[f64]) -> f64
+{
+    let mut sum = 0.0;
+
+    for x_m_i in x_m.iter()
+    {
+        sum += x_m_i;
+    }
+
+    1.0 + sum * 9.0 / x_m.len() as  f64
+}
+
+impl Dtlz7 {
     pub fn new(n_var: usize, n_obj: usize) -> Self
     {
-        Dtlz1 {
-            name: format!("DTLZ1 ({} {})", n_var, n_obj),
+        Dtlz7 {
+            name: format!("DTLZ7 ({} {})", n_var, n_obj),
             n_var,
             n_obj
         }
     }
 }
 
-impl Problem for Dtlz1
+impl Problem for Dtlz7
 {
     fn name(&self) -> &str {
         self.name.as_str()
     }
 
-    fn convergence_metric(&self, in_x: &[f64]) -> f64 {
-        let x_m = &in_x[self.n_obj - 1..];
+    fn convergence_metric(&self, x: &[f64]) -> f64 {
+        let k = self.n_var - self.n_obj + 1;
 
-        g1(x_m)
+        g(&x[x.len() - k..])
     }
 
     fn plot_3d_max_x(&self) -> f64 {
-        0.6
+        6.1
     }
 
     fn plot_3d_max_y(&self) -> f64 {
-        0.6
+        6.1
     }
 
     fn plot_3d_max_z(&self) -> f64 {
-        0.6
+        6.1
     }
 
     fn plot_3d_min_x(&self) -> f64 {
@@ -60,35 +72,33 @@ impl Problem for Dtlz1
     }
 }
 
-impl ArraySolutionEvaluator for Dtlz1
+impl ArraySolutionEvaluator for Dtlz7
 {
-    fn calculate_objectives(&self, in_x: &Vec<f64>, f: &mut Vec<f64>) {
-        let x = &in_x[..self.n_obj - 1];
-        let x_m = &in_x[self.n_obj - 1..];
+    fn calculate_objectives(&self, x: &Vec<f64>, f: &mut Vec<f64>) {
+        let k = self.n_var - self.n_obj + 1;
 
-        let g = g1(x_m);
+        let g = g(&x[x.len() - k..]);
 
         if f.len() != self.n_obj
         {
             f.resize(self.n_obj, 0.0);
         }
 
-        for i in 0..self.n_obj
+        for i in 0..f.len() - 1
         {
-            let mut f_val = 0.5 * (1.0 + g);
-
-            for x_i in &x[..x.len() - i]
-            {
-                f_val *= x_i;
-            }
-
-            if i > 0
-            {
-                f_val *= 1.0 - x[x.len() - i];
-            }
-
-            f[i] = f_val;
+            f[i] = x[i];
         }
+
+        let mut h_sum = 0.0;
+
+        for i in 0..f.len() - 1
+        {
+            h_sum += (f[i] / (1.0 + g)) * (1.0 + (3.0 * std::f64::consts::PI * f[i]).sin())
+        }
+
+        let h = self.n_obj as f64 - h_sum;
+
+        f[self.n_obj - 1] = h * (1.0 + g);
     }
 
     fn x_len(&self) -> usize {
