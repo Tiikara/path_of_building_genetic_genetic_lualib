@@ -30,6 +30,10 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
     where
         S: Solution,
 {
+    fn name(&self) -> &str {
+        "NSGA-II"
+    }
+
     /// Run an optimization process using `eval` to determine termination condition
     ///
     /// Since an optimization can produce a set of
@@ -57,12 +61,12 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
             })
             .collect();
 
-        let mut preprocess_vec = Vec::with_capacity(pop.len());
-        for child in pop.iter_mut()
-        {
-            preprocess_vec.push(&mut child.sol);
-        }
-        runtime_solutions_processor.new_candidates(preprocess_vec);
+        runtime_solutions_processor.new_candidates(
+            pop
+                .iter_mut()
+                .map(|candidate| &mut candidate.sol)
+                .collect()
+        );
 
         let mut parent_pop = self.sort(pop);
 
@@ -74,26 +78,30 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
 
             runtime_solutions_processor.iteration_num(iter);
 
+            self.best_solutions.clear();
             // Keep copies of the best candidates in a stash
             parent_pop
                 .iter()
                 .take_while(|c| c.front == 0)
-                .for_each(|mut c| {
+                .for_each(|c| {
                     let vals: Vec<f64> = self.values(&c.sol);
 
                     // Only keep better old values
-                    self.best_solutions
-                        .retain(|s| s.0.iter().zip(&vals).any(|(old, new)| old < new));
+                    //self.best_solutions
+                    //    .retain(|s| s.0.iter().zip(&vals).any(|(old, new)| old < new));
 
                     self.best_solutions.push((vals, c.sol.clone()));
                 });
 
-            let mut preprocess_vec = Vec::with_capacity(parent_pop.len());
-            for child in parent_pop.iter_mut()
-            {
-                preprocess_vec.push(&mut child.sol);
-            }
-            runtime_solutions_processor.iter_solutions(preprocess_vec);
+            //self.best_solutions = parent_pop
+            //    .iter()
+            //    .take_while(|c| c.front == 0).collect();
+
+            runtime_solutions_processor.iter_solutions(
+                parent_pop.iter_mut()
+                    .map(|child| &mut child.sol)
+                    .collect()
+            );
 
             // Check if there's a good-enough solution already
             if parent_pop
@@ -145,12 +153,12 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
                 child_pop.push(c2);
             }
 
-            let mut preprocess_vec = Vec::with_capacity(child_pop.len());
-            for child in child_pop.iter_mut()
-            {
-                preprocess_vec.push(&mut child.sol);
-            }
-            runtime_solutions_processor.new_candidates(preprocess_vec);
+            runtime_solutions_processor.new_candidates(
+                child_pop
+                    .iter_mut()
+                    .map(|child| &mut child.sol)
+                    .collect()
+            );
 
             parent_pop.extend(child_pop);
 
@@ -184,6 +192,10 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
 
             parent_pop = next_pop;
         }
+    }
+
+    fn best_solutions(&self) -> Vec<(Vec<f64>, S)> {
+        self.best_solutions.clone()
     }
 }
 
@@ -389,8 +401,7 @@ impl<'a, S> NSGA2Optimizer<'a, S>
         let vals1 = self.values(s1);
         let vals2 = self.values(s2);
 
-        let vals: Vec<_> = vals1.into_iter().zip(vals2).collect();
-
-        vals.iter().all(|(v1, v2)| v1 <= v2) && vals.iter().any(|(v1, v2)| v1 < v2)
+        vals1.iter().zip(&vals2).all(|(v1, v2)| *v1 <= *v2) &&
+            vals1.iter().zip(&vals2).any(|(v1, v2)| *v1 < *v2)
     }
 }

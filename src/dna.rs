@@ -1,10 +1,8 @@
-use std::collections::HashMap;
 use std::ops::{Deref, DerefMut, RangeInclusive};
 use std::rc::Rc;
 use mlua::UserData;
 use rand::prelude::SliceRandom;
 use rand::{Rng, thread_rng};
-use rand::rngs::ThreadRng;
 
 const MAX_MUTATE_CLUSTER_SIZE: usize = 4;
 

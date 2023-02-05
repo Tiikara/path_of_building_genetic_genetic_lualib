@@ -1,5 +1,9 @@
 pub mod evaluator;
 pub mod optimizers;
+#[cfg(test)]
+mod tests;
+mod array_solution;
+mod problem;
 
 use std::fmt::Debug;
 

@@ -1,5 +1,4 @@
 use std::{env, thread};
-use std::collections::{HashSet};
 use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
@@ -61,7 +60,7 @@ pub struct LuaGeneticSolver
 }
 
 impl<'a> Debug for Dna {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
         todo!()
     }
 }
@@ -101,7 +100,7 @@ impl SolutionsRuntimeProcessor<Dna> for SolutionsRuntimeDnaProcessor
 
             std::mem::swap(&mut new_dna, *dna);
 
-            let mut dna_command = DnaCommand {
+            let dna_command = DnaCommand {
                 dna: Some(new_dna)
             };
 
@@ -158,7 +157,7 @@ impl<'a> Objective<Dna> for FitnessScoreObjective {
         -candidate.fitness_score
     }
 
-    fn good_enough(&self, val: f64) -> bool {
+    fn good_enough(&self, _val: f64) -> bool {
         false
     }
 }
@@ -172,7 +171,7 @@ impl<'a> Objective<Dna> for TargetObjective {
         -candidate.fitness_score_targets[self.target_index]
     }
 
-    fn good_enough(&self, val: f64) -> bool {
+    fn good_enough(&self, _val: f64) -> bool {
         false
     }
 }
