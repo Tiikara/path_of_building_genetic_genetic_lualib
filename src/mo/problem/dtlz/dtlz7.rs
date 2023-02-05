@@ -2,7 +2,6 @@ use std::fmt::format;
 use rand::{Rng, thread_rng};
 use crate::mo::array_solution::ArraySolutionEvaluator;
 use crate::mo::problem::Problem;
-use crate::mo::tests::dtlz::{calc_spherical_target, g1, g2, g3};
 
 #[derive(Clone)]
 pub struct Dtlz7
@@ -41,10 +40,18 @@ impl Problem for Dtlz7
         self.name.as_str()
     }
 
+    fn problem_class_name(&self) -> &str {
+        "DTLZ7"
+    }
+
     fn convergence_metric(&self, x: &[f64]) -> f64 {
         let k = self.n_var - self.n_obj + 1;
 
         g(&x[x.len() - k..])
+    }
+
+    fn best_metric(&self) -> f64 {
+        1.0
     }
 
     fn plot_3d_max_x(&self) -> f64 {

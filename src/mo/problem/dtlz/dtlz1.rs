@@ -1,50 +1,58 @@
 use std::fmt::format;
 use rand::{Rng, thread_rng};
 use crate::mo::array_solution::ArraySolutionEvaluator;
+use crate::mo::problem::dtlz::g1;
 use crate::mo::problem::Problem;
-use crate::mo::tests::dtlz::{calc_spherical_target, g1, g2};
 
 #[derive(Clone)]
-pub struct Dtlz5
+pub struct Dtlz1
 {
     name: String,
     n_var: usize,
     n_obj: usize
 }
 
-impl Dtlz5 {
+impl Dtlz1 {
     pub fn new(n_var: usize, n_obj: usize) -> Self
     {
-        Dtlz5 {
-            name: format!("DTLZ5 ({} {})", n_var, n_obj),
+        Dtlz1 {
+            name: format!("DTLZ1 ({} {})", n_var, n_obj),
             n_var,
             n_obj
         }
     }
 }
 
-impl Problem for Dtlz5
+impl Problem for Dtlz1
 {
     fn name(&self) -> &str {
         self.name.as_str()
     }
 
+    fn problem_class_name(&self) -> &str {
+        "DTLZ1"
+    }
+
     fn convergence_metric(&self, in_x: &[f64]) -> f64 {
         let x_m = &in_x[self.n_obj - 1..];
 
-        g2(x_m)
+        g1(x_m)
+    }
+
+    fn best_metric(&self) -> f64 {
+        0.0
     }
 
     fn plot_3d_max_x(&self) -> f64 {
-        1.1
+        0.6
     }
 
     fn plot_3d_max_y(&self) -> f64 {
-        1.1
+        0.6
     }
 
     fn plot_3d_max_z(&self) -> f64 {
-        1.1
+        0.6
     }
 
     fn plot_3d_min_x(&self) -> f64 {
@@ -60,26 +68,35 @@ impl Problem for Dtlz5
     }
 }
 
-impl ArraySolutionEvaluator for Dtlz5
+impl ArraySolutionEvaluator for Dtlz1
 {
     fn calculate_objectives(&self, in_x: &Vec<f64>, f: &mut Vec<f64>) {
         let x = &in_x[..self.n_obj - 1];
         let x_m = &in_x[self.n_obj - 1..];
 
-        let g = g2(x_m);
+        let g = g1(x_m);
 
         if f.len() != self.n_obj
         {
             f.resize(self.n_obj, 0.0);
         }
 
-        let mut q: Vec<f64> = x.iter()
-            .map(|x_i| (1.0 + 2.0 * g * (*x_i)) / (2.0 * (1.0 + g)) )
-            .collect();
+        for i in 0..self.n_obj
+        {
+            let mut f_val = 0.5 * (1.0 + g);
 
-        q[0] = x[0];
+            for x_i in &x[..x.len() - i]
+            {
+                f_val *= x_i;
+            }
 
-        calc_spherical_target(&q, g, 1.0, f);
+            if i > 0
+            {
+                f_val *= 1.0 - x[x.len() - i];
+            }
+
+            f[i] = f_val;
+        }
     }
 
     fn x_len(&self) -> usize {

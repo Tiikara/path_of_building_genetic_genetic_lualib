@@ -15,7 +15,7 @@ use crate::auto_targets::{AutoTargetFromStatToStat, AutoTargetManaCost, AutoTarg
 
 use crate::dna::{Dna, DnaData, LuaDna};
 use crate::mo::{Constraint, Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
-use crate::mo::evaluator::DefaultEvaluator;
+use crate::mo::evaluator::{DefaultEvaluator, Evaluator};
 use crate::mo::optimizers::nsga2::NSGA2Optimizer;
 use crate::mo::optimizers::Optimizer;
 use crate::target::Target;
@@ -471,18 +471,21 @@ pub fn genetic_solve(writer_dna_queue_channel: Sender<Box<DnaCommand>>,
         constraints: vec![]
     };
 
+    let mut default_evaluator: Box<(dyn Evaluator)> = Box::new(DefaultEvaluator::new(stop_generations_eps));
+    let mut runtime_processor: Box<(dyn SolutionsRuntimeProcessor<Dna>)> = Box::new(SolutionsRuntimeDnaProcessor {
+        writer_dna_queue_channel,
+        reader_dna_result_queue_channel,
+        process_status: process_status.clone(),
+        current_generation_number,
+        is_received_stop_request: is_received_stop_request.clone(),
+        best_solution_fitness: -1.0
+    });
+
     let mut optimizer = NSGA2Optimizer::new(meta);
     optimizer
         .optimize(
-            Box::new(DefaultEvaluator::new(stop_generations_eps)),
-            Box::new(SolutionsRuntimeDnaProcessor {
-                writer_dna_queue_channel,
-                reader_dna_result_queue_channel,
-                process_status: process_status.clone(),
-                current_generation_number,
-                is_received_stop_request: is_received_stop_request.clone(),
-                best_solution_fitness: -1.0
-            })
+            &mut default_evaluator,
+            &mut runtime_processor
         );
 
     {

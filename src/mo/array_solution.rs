@@ -175,8 +175,19 @@ impl<'a> Meta<'a, ArraySolution> for ArrayOptimizerParams {
 
 pub struct SolutionsRuntimeArrayProcessor
 {
-
+    current_iteration_num: usize
 }
+
+impl SolutionsRuntimeArrayProcessor
+{
+    pub fn new() -> Self
+    {
+        SolutionsRuntimeArrayProcessor {
+            current_iteration_num: 0
+        }
+    }
+}
+
 
 impl SolutionsRuntimeProcessor<ArraySolution> for SolutionsRuntimeArrayProcessor
 {
@@ -191,8 +202,8 @@ impl SolutionsRuntimeProcessor<ArraySolution> for SolutionsRuntimeArrayProcessor
 
     }
 
-    fn iteration_num(&mut self, _num: usize) {
-
+    fn iteration_num(&mut self, num: usize) {
+        self.current_iteration_num = num;
     }
 
     fn needs_early_stop(&mut self) -> bool {

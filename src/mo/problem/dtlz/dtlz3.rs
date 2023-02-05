@@ -1,8 +1,8 @@
 use std::fmt::format;
 use rand::{Rng, thread_rng};
 use crate::mo::array_solution::ArraySolutionEvaluator;
+use crate::mo::problem::dtlz::{calc_spherical_target, g1};
 use crate::mo::problem::Problem;
-use crate::mo::tests::dtlz::{calc_spherical_target, g1, g2};
 
 #[derive(Clone)]
 pub struct Dtlz3
@@ -29,10 +29,18 @@ impl Problem for Dtlz3
         self.name.as_str()
     }
 
+    fn problem_class_name(&self) -> &str {
+        "DTLZ3"
+    }
+
     fn convergence_metric(&self, in_x: &[f64]) -> f64 {
         let x_m = &in_x[self.n_obj - 1..];
 
         g1(x_m)
+    }
+
+    fn best_metric(&self) -> f64 {
+        0.0
     }
 
     fn plot_3d_max_x(&self) -> f64 {
