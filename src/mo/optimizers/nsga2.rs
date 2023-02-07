@@ -316,12 +316,4 @@ impl<'a, S> NSGA2Optimizer<'a, S>
             .map(|obj| self.value(s, obj))
             .collect()
     }
-
-    fn dominates(&self, s1: &S, s2: &S) -> bool {
-        let vals1 = self.values(s1);
-        let vals2 = self.values(s2);
-
-        vals1.iter().zip(&vals2).all(|(v1, v2)| *v1 <= *v2) &&
-            vals1.iter().zip(&vals2).any(|(v1, v2)| *v1 < *v2)
-    }
 }
