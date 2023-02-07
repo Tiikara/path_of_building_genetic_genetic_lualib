@@ -165,33 +165,11 @@ impl<'a, S> Optimizer<S> for NSGA2Optimizer<'a, S>
 
             // Sort combined population
             let sorted = self.sort(parent_pop);
-            let mut sorted_iter = sorted.into_iter().peekable();
 
-            // Now select the next population
-            let mut next_pop: Vec<_> = Vec::with_capacity(pop_size);
-            let mut front = 0;
 
-            while next_pop.len() != pop_size {
-                let mut front_items: Vec<_> = sorted_iter
-                    .by_ref()
-                    .peeking_take_while(|i| i.front == front)
-                    .collect();
+            parent_pop = sorted;
 
-                // Front fits entirely
-                if next_pop.len() + front_items.len() < next_pop.capacity() {
-                    next_pop.extend(front_items);
-
-                    front += 1;
-                } else {
-                    front_items.sort_by(|a, b| b.distance.partial_cmp(&a.distance).unwrap());
-
-                    let rest: Vec<_> = front_items.drain(..(pop_size - next_pop.len())).collect();
-
-                    next_pop.extend(rest);
-                }
-            }
-
-            parent_pop = next_pop;
+            parent_pop.truncate(pop_size)
         }
     }
 
@@ -240,84 +218,21 @@ impl<'a, S> NSGA2Optimizer<'a, S>
 
     #[allow(clippy::needless_range_loop)]
     fn sort(&self, pop: Vec<Candidate<S>>) -> Vec<Candidate<S>> {
-        //let enf_sorted = ens_nondominated_sorting(
-        //    &mut pop.iter().map(|p| self.values(&p.sol)).collect()
-        //);
+        let objs = pop.iter()
+            .map(|p| self.values(&p.sol))
+            .collect();
 
-        let mut dominates: HashMap<SolutionId, HashSet<SolutionId>> = HashMap::new();
-        let mut dominated_by: HashMap<SolutionId, usize> = HashMap::new();
+        let ens_fronts = ens_nondominated_sorting(&objs);
 
-        let ids: Vec<_> = pop.iter().map(|c| c.id).collect();
-        let mut sols: HashMap<SolutionId, S> = pop.into_iter().map(|c| (c.id, c.sol)).collect();
-
-        let mut fronts: Vec<HashSet<SolutionId>> = vec![HashSet::new()];
-
-        // Stage 1
-        for i in 0..ids.len() {
-            let i_id = ids[i];
-
-            for j in i + 1..ids.len() {
-                let j_id = ids[j];
-                let sol_i = &sols[&i_id];
-                let sol_j = &sols[&j_id];
-
-                let r = if self.dominates(sol_i, sol_j) {
-                    Some((i_id, j_id))
-                } else if self.dominates(sol_j, sol_i) {
-                    Some((j_id, i_id))
-                } else {
-                    None
-                };
-
-                if let Some((d, dby)) = r {
-                    dominates.entry(d).or_insert_with(HashSet::new).insert(dby);
-                    *dominated_by.entry(dby).or_insert(0) += 1;
-                }
-            }
-
-            if dominated_by.get(&i_id).is_none() {
-                fronts[0].insert(i_id);
-            }
-        }
-
-        // Stage2
-        let mut i = 0;
-        while !fronts[i].is_empty() {
-            let mut new_front = HashSet::new();
-
-            for id in fronts[i].iter() {
-                if let Some(set) = dominates.get(id) {
-                    for dominated_id in set.iter() {
-                        dominated_by.entry(*dominated_id).and_modify(|v| {
-                            if v > &mut 0 {
-                                *v -= 1
-                            }
-                        });
-
-                        match dominated_by.get(dominated_id) {
-                            None | Some(0) => {
-                                if !new_front.contains(dominated_id) {
-                                    new_front.insert(*dominated_id);
-                                }
-                            }
-                            _ => (),
-                        }
-                    }
-                }
-            }
-
-            i += 1;
-            fronts.push(new_front);
-        }
-
-        let mut flat_fronts: Vec<Candidate<S>> = Vec::with_capacity(fronts.len());
-        for (fidx, f) in fronts.into_iter().enumerate() {
-            for id in f {
-                let sol = sols.remove(&id).unwrap();
+        let mut flat_fronts: Vec<Candidate<S>> = Vec::with_capacity(pop.len());
+        for (fidx, f) in ens_fronts.into_iter().enumerate() {
+            for index in f {
+                let p = &pop[index];
+                let id = p.id;
 
                 flat_fronts.push(Candidate {
                     id,
-                    sol,
+                    sol: p.sol.clone(),
                     front: fidx,
                     distance: 0.0,
                 });
@@ -377,7 +292,7 @@ impl<'a, S> NSGA2Optimizer<'a, S>
             if a.front != b.front {
                 a.front.cmp(&b.front)
             } else if a.distance != b.distance {
-                a.distance.partial_cmp(&b.distance).unwrap()
+                b.distance.partial_cmp(&a.distance).unwrap()
             } else {
                 Ordering::Equal
             }

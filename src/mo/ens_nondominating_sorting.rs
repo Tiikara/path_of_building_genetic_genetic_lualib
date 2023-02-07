@@ -1,60 +1,68 @@
 use std::cmp::Ordering;
 use crate::mo::Solution;
 
-fn dominates(vals1: &Vec<f64>, other: &Vec<f64>) -> bool {
-    let mut self_better = false;
-    let mut equal = false;
-    for (i, obj) in vals1.iter().enumerate() {
-        match obj.partial_cmp(&other[i]).unwrap() {
-            Ordering::Less => self_better = true,
-            Ordering::Equal => equal = true,
-            Ordering::Greater => return false,
+fn dominates(p1: &[f64], p2: &[f64]) -> bool {
+    let mut dominated = false;
+    let mut equal = true;
+    for i in 0..p1.len() {
+        match p1[i].partial_cmp(&p2[i]).unwrap() {
+            Ordering::Less => {
+                dominated = true;
+                equal = false;
+            },
+            Ordering::Greater => {
+                return false;
+            },
+            Ordering::Equal => (),
         }
     }
-    self_better && !equal
+    dominated || equal
 }
 
 pub fn ens_nondominated_sorting(pop: &Vec<Vec<f64>>) -> Vec<Vec<usize>> {
-    let mut pop_i: Vec<(usize, &Vec<f64>)> = pop.iter().enumerate()
-        .map(|(i, p)| (i, p))
-        .collect();
-
-    pop_i.sort_unstable_by(|a, b| a.1.first().unwrap().partial_cmp(&b.1.first().unwrap()).unwrap());
-
-    let pop: Vec<&Vec<f64>> = pop_i.iter().map(|p| p.1).collect();
-
-    let mut fronts = vec![];
-
-    for (n, p) in pop.iter().enumerate() {
-        let k = sequential_search(&pop, p, &fronts);
-        if k == fronts.len() {
-            fronts.push(vec![n]);
-        } else {
-            fronts[k].push(n);
+    let mut indices = (0..pop.len()).collect::<Vec<usize>>();
+    indices.sort_by(|&a, &b| {
+        let mut i = 0;
+        while i < pop[a].len() {
+            match pop[a][i].partial_cmp(&pop[b][i]).unwrap() {
+                Ordering::Less => return Ordering::Less,
+                Ordering::Greater => return Ordering::Greater,
+                Ordering::Equal => (),
+            }
+            i += 1;
         }
-    }
+        Ordering::Equal
+    });
 
-    fronts.iter()
-        .map(|front| front.iter().map(|i| pop_i[*i].0 ).collect())
-        .collect()
-}
+    let mut fronts: Vec<Vec<usize>> = vec![];
+    for &n in indices.iter() {
+        let mut k = 0;
+        while k < fronts.len() {
+            let mut contain_dominating_n = false;
+            for i in fronts[k].iter().rev()
+            {
+                if dominates(&pop[*i], &pop[n]) {
+                    contain_dominating_n = true;
+                    break;
+                }
+            }
 
-fn sequential_search(pop: &Vec<&Vec<f64>>, p: &Vec<f64>, fronts: &[Vec<usize>]) -> usize {
-    let mut k = 0;
-    let x = fronts.len();
-    while k < x {
-        let mut dominated = false;
-        for &index in fronts[k].iter().rev() {
-            let sol = &pop[index];
-            if dominates(sol, p) {
-                dominated = true;
+            if contain_dominating_n == false
+            {
+                fronts[k].push(n);
                 break;
             }
+            else
+            {
+                k += 1;
+            }
         }
-        if !dominated {
-            return k;
+
+        if k == fronts.len()
+        {
+            fronts.push(vec![n]);
         }
-        k += 1;
     }
-    x
+
+    fronts
 }
