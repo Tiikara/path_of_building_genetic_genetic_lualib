@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::identity;
 use crate::mo::evaluator::Evaluator;
 use crate::mo::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
+use crate::mo::ens_nondominating_sorting::ens_nondominated_sorting;
 use crate::mo::optimizers::Optimizer;
 
 type SolutionId = u64;
@@ -239,6 +240,10 @@ impl<'a, S> NSGA2Optimizer<'a, S>
 
     #[allow(clippy::needless_range_loop)]
     fn sort(&self, pop: Vec<Candidate<S>>) -> Vec<Candidate<S>> {
+        //let enf_sorted = ens_nondominated_sorting(
+        //    &mut pop.iter().map(|p| self.values(&p.sol)).collect()
+        //);
+
         let mut dominates: HashMap<SolutionId, HashSet<SolutionId>> = HashMap::new();
         let mut dominated_by: HashMap<SolutionId, usize> = HashMap::new();
 

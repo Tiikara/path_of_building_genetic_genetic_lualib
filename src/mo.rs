@@ -4,6 +4,7 @@ pub mod optimizers;
 mod tests;
 mod array_solution;
 mod problem;
+mod ens_nondominating_sorting;
 
 use std::fmt::Debug;
 
