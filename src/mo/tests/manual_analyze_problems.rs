@@ -9,13 +9,15 @@ use plotters::prelude::*;
 use crate::mo::array_solution::{ArrayOptimizerParams, ArraySolution, ArraySolutionEvaluator, SolutionsRuntimeArrayProcessor};
 use crate::mo::evaluator::{DefaultEvaluator, Evaluator};
 use crate::mo::optimizers::nsga2::NSGA2Optimizer;
-use crate::mo::optimizers::Optimizer;
+use crate::mo::optimizers::{nsga3_self_impl, Optimizer};
 use crate::mo::problem::Problem;
 use crate::mo::{Ratio, SolutionsRuntimeProcessor};
 use std::io::Write;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use rand::{Rng, thread_rng};
+use crate::mo::optimizers::nsga3::NSGA3Optimizer;
+use crate::mo::optimizers::reference_directions::ReferenceDirections;
 use crate::mo::problem::dtlz::dtlz1::Dtlz1;
 use crate::mo::problem::dtlz::dtlz2::Dtlz2;
 use crate::mo::problem::dtlz::dtlz3::Dtlz3;
@@ -94,7 +96,7 @@ fn print_best_solutions_3d_to_gif(problem: &Box<dyn Problem + Send>,
 fn new_array_optimizer_params(array_solution_evaluator: Box<dyn ArraySolutionEvaluator>) -> ArrayOptimizerParams
 {
     ArrayOptimizerParams::new(
-        65,
+        92,
         Ratio(1, 2),
         Ratio(3, 10),
         array_solution_evaluator,
@@ -125,6 +127,7 @@ impl ProblemsSolver
 
     fn calc_best_solutions_and_print_to_3d_plots(&self, dir: &std::path::Path)
     {
+        // let mut multi_threaded_runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
         let mut multi_threaded_runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
 
         multi_threaded_runtime.block_on(async move {
@@ -479,17 +482,20 @@ fn print_3d_images_for_optimizers() {
 
     for n_var in vec![4, 7, 15, 20, 30]
     {
-        test_problems.extend(dtlz_test_problems(n_var, 3));
+        //test_problems.extend(dtlz_test_problems(n_var, 3));
     }
+
+    test_problems.push(ProblemsSolver::create_test_problem(&Dtlz1::new(4, 3)));
 
     let problem_solver = ProblemsSolver::new(
         test_problems,
         vec![
-            |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params))
+            |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
+            |optimizer_params: ArrayOptimizerParams| Box::new(nsga3_self_impl::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(3, 12).reference_directions))
         ],
     );
 
-    problem_solver.calc_best_solutions_and_print_to_3d_plots(std::path::Path::new("D:/tmp/test_optimizers/images"));
+    problem_solver.calc_best_solutions_and_print_to_3d_plots(std::path::Path::new("E:/tmp/test_optimizers/images"));
 }
 
 #[test]
@@ -518,6 +524,6 @@ fn calc_output_metric_for_optimizers() {
     );
 
     problem_solver.calc_metric_and_save_to_file(10,
-                                                std::path::Path::new("D:/tmp/test_optimizers/self_metric_results"),
-                                                std::path::Path::new("D:/tmp/test_optimizers/metrics"));
+                                                std::path::Path::new("E:/tmp/test_optimizers/self_metric_results"),
+                                                std::path::Path::new("E:/tmp/test_optimizers/metrics"));
 }

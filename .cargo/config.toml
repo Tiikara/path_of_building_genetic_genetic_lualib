@@ -1,5 +1,5 @@
 [env]
-LUA_INC = "D:\\C++LIB\\luajit2\\src"
-LUA_LIB = "D:\\C++LIB\\luajit2\\src"
+LUA_INC = "E:\\C++LIB\\luajit2\\src"
+LUA_LIB = "E:\\C++LIB\\luajit2\\src"
 LUA_LIB_NAME = "lua51"
 LUA_LINK = "dylib"
