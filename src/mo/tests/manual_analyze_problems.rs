@@ -482,10 +482,10 @@ fn print_3d_images_for_optimizers() {
 
     for n_var in vec![4, 7, 15, 20, 30]
     {
-        //test_problems.extend(dtlz_test_problems(n_var, 3));
+        test_problems.extend(dtlz_test_problems(n_var, 3));
     }
 
-    test_problems.push(ProblemsSolver::create_test_problem(&Dtlz1::new(4, 3)));
+    // test_problems.push(ProblemsSolver::create_test_problem(&Dtlz1::new(4, 3)));
 
     let problem_solver = ProblemsSolver::new(
         test_problems,
