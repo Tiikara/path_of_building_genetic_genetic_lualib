@@ -40,6 +40,11 @@ fn optimize_and_get_best_solutions(optimizer: &mut Box<dyn Optimizer<ArraySoluti
 
 fn mean_convergence_metric_for_solutions(problem: &Box<dyn Problem + Send>, solutions: &Vec<(Vec<f64>, ArraySolution)>) -> f64
 {
+    if solutions.len() == 0
+    {
+        return f64::MAX
+    }
+
     let sum = solutions
         .iter()
         .map(|solution| problem.convergence_metric(&solution.1.x))
@@ -254,20 +259,55 @@ impl ProblemsSolver
     {
         let mut table_results = self.gen_table_results_from_table_lines(table_lines);
 
+        let mut mean_successfulness = vec![0.0; optimizers_title.len() - 1];
+
         for result in tasks_result
         {
             let std_dev = std_dev_problems[result.1];
             let best_metric = self.test_problems[result.1].1.best_metric();
             let metric = result.2;
 
-            let successfulness = 1.0 - (metric - best_metric) / (std_dev - best_metric);
+            let successfulness = (1.0 - (metric - best_metric) / (std_dev - best_metric)) * 100.0;
 
-            table_results[result.1].1[result.0] = format!("{:.0}%", successfulness * 100.0);
+            mean_successfulness[result.0 - 1] += successfulness;
+
+            table_results[result.1].1[result.0] = format!("{:.0}%", successfulness);
+        }
+
+        for mean_successfulness in mean_successfulness.iter_mut()
+        {
+            *mean_successfulness = *mean_successfulness / table_lines.len() as f64;
+        }
+
+        let mut std_dev_successfulness = vec![0.0; optimizers_title.len() - 1];
+
+        for result in tasks_result
+        {
+            let std_dev = std_dev_problems[result.1];
+            let best_metric = self.test_problems[result.1].1.best_metric();
+            let metric = result.2;
+
+            let successfulness = (1.0 - (metric - best_metric) / (std_dev - best_metric)) * 100.0;
+
+            std_dev_successfulness[result.0 - 1] += (successfulness - mean_successfulness[result.0 - 1]).powi(2);
+        }
+
+        for std_dev_successfulness in std_dev_successfulness.iter_mut()
+        {
+            *std_dev_successfulness = (*std_dev_successfulness / table_lines.len() as f64).sqrt();
+        }
+
+        let mut average_title = vec![String::from(""); optimizers_title.len()];
+
+        for (i, (std_dev, mean)) in std_dev_successfulness.iter().zip(mean_successfulness).enumerate()
+        {
+            average_title[i + 1] = format!("{:.0}% (±{:.1}%)", mean, std_dev);
         }
 
         let mut table_lines = self.gen_table_lines_form_table_results(table_results);
-
         table_lines.insert(0, optimizers_title.clone());
+
+        table_lines.push(average_title);
 
         let table = MarkdownTable::new(table_lines);
 
