@@ -10,4 +10,3 @@ mod user_target;
 mod fitness_function_calculator;
 mod auto_targets;
 pub mod target;
-mod mo;
