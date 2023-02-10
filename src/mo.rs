@@ -5,6 +5,7 @@ mod tests;
 mod array_solution;
 mod problem;
 mod ens_nondominating_sorting;
+mod misc;
 
 use std::fmt::Debug;
 

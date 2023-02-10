@@ -13,7 +13,7 @@ use std::iter::Sum;
 use std::ops::{Add, Div, Mul, Sub};
 use crate::mo::evaluator::Evaluator;
 use crate::mo::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
-use crate::mo::optimizers::nsga_3_by_chat_gpt::nsga_iii;
+use crate::mo::misc::nsga_3_by_chat_gpt::nsga_iii;
 use crate::mo::optimizers::Optimizer;
 
 type SolutionId = u64;
@@ -163,7 +163,7 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
 
             parent_pop.extend(child_pop);
 
-            let mut nsga3_solution = parent_pop.iter().map(|p| crate::mo::optimizers::nsga_3_by_chat_gpt::Solution::new(self.values(&p.sol))).collect();
+            let mut nsga3_solution = parent_pop.iter().map(|p| crate::mo::misc::nsga_3_by_chat_gpt::Solution::new(self.values(&p.sol))).collect();
 
             let selected = nsga_iii(&mut nsga3_solution, 15);
 

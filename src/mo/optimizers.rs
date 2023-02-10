@@ -2,8 +2,7 @@ use crate::mo::evaluator::Evaluator;
 use crate::mo::{Solution, SolutionsRuntimeProcessor};
 
 pub mod nsga2;
-pub mod nsga3;
-pub mod nsga_3_by_chat_gpt;
+pub mod nsga3_chat_gpt;
 pub mod nsga3_self_impl;
 pub mod reference_directions;
 

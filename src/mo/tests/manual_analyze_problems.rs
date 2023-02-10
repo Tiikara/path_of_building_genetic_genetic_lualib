@@ -16,7 +16,7 @@ use std::io::Write;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use rand::{Rng, thread_rng};
-use crate::mo::optimizers::nsga3::NSGA3Optimizer;
+use crate::mo::optimizers::nsga3_chat_gpt::NSGA3Optimizer;
 use crate::mo::optimizers::reference_directions::ReferenceDirections;
 use crate::mo::problem::dtlz::dtlz1::Dtlz1;
 use crate::mo::problem::dtlz::dtlz2::Dtlz2;

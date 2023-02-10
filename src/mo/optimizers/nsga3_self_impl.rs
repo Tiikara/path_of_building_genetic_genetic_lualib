@@ -14,14 +14,12 @@ use std::fs::read_to_string;
 use std::iter::Sum;
 use std::ops::{Add, Div, Mul, Sub};
 use std::panic::{catch_unwind, PanicInfo};
-use std::process::Output;
 use ndarray::{Array2, ArrayView1, indices_of};
 use rand_distr::num_traits;
 use rand_distr::num_traits::real::Real;
 use crate::mo::evaluator::Evaluator;
 use crate::mo::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
 use crate::mo::ens_nondominating_sorting::ens_nondominated_sorting;
-use crate::mo::optimizers::nsga_3_by_chat_gpt::nsga_iii;
 use crate::mo::optimizers::Optimizer;
 
 type SolutionId = u64;
