@@ -101,7 +101,7 @@ fn print_best_solutions_3d_to_gif(problem: &Box<dyn Problem + Send>,
 fn new_array_optimizer_params(array_solution_evaluator: Box<dyn ArraySolutionEvaluator>) -> ArrayOptimizerParams
 {
     ArrayOptimizerParams::new(
-        92,
+        65,
         Ratio(1, 2),
         Ratio(3, 10),
         array_solution_evaluator,
@@ -535,7 +535,7 @@ fn print_3d_images_for_optimizers() {
         ],
     );
 
-    problem_solver.calc_best_solutions_and_print_to_3d_plots(std::path::Path::new("E:/tmp/test_optimizers/images"));
+    problem_solver.calc_best_solutions_and_print_to_3d_plots(std::path::Path::new("D:/tmp/test_optimizers/images"));
 }
 
 #[test]
@@ -568,6 +568,6 @@ fn calc_output_metric_for_optimizers() {
     );
 
     problem_solver.calc_metric_and_save_to_file(10,
-                                                std::path::Path::new("E:/tmp/test_optimizers/self_metric_results"),
-                                                std::path::Path::new("E:/tmp/test_optimizers/metrics"));
+                                                std::path::Path::new("D:/tmp/test_optimizers/self_metric_results"),
+                                                std::path::Path::new("D:/tmp/test_optimizers/metrics"));
 }
