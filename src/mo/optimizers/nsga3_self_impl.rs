@@ -20,6 +20,7 @@ use rand_distr::num_traits;
 use rand_distr::num_traits::real::Real;
 use crate::mo::evaluator::Evaluator;
 use crate::mo::{Meta, Objective, Ratio, Solution, SolutionsRuntimeProcessor};
+use crate::mo::ens_nondominating_sorting::ens_nondominated_sorting;
 use crate::mo::optimizers::nsga_3_by_chat_gpt::nsga_iii;
 use crate::mo::optimizers::Optimizer;
 
@@ -242,81 +243,23 @@ impl<'a, S> NSGA3Optimizer<'a, S>
 
     #[allow(clippy::needless_range_loop)]
     fn sort(&mut self, pop: Vec<Candidate<S>>) -> Vec<Candidate<S>> {
-        let mut dominates: HashMap<SolutionId, HashSet<SolutionId>> = HashMap::new();
-        let mut dominated_by: HashMap<SolutionId, usize> = HashMap::new();
+        let objs = pop.iter()
+            .map(|p| self.values(&p.sol))
+            .collect();
 
-        let ids: Vec<_> = pop.iter().map(|c| c.id).collect();
-        let mut sols: HashMap<SolutionId, S> = pop.into_iter().map(|c| (c.id, c.sol)).collect();
+        let ens_fronts = ens_nondominated_sorting(&objs);
 
-        let mut fronts: Vec<HashSet<SolutionId>> = vec![HashSet::new()];
-
-        // Stage 1
-        for i in 0..ids.len() {
-            let i_id = ids[i];
-
-            for j in i + 1..ids.len() {
-                let j_id = ids[j];
-                let sol_i = &sols[&i_id];
-                let sol_j = &sols[&j_id];
-
-                let r = if self.dominates(sol_i, sol_j) {
-                    Some((i_id, j_id))
-                } else if self.dominates(sol_j, sol_i) {
-                    Some((j_id, i_id))
-                } else {
-                    None
-                };
-
-                if let Some((d, dby)) = r {
-                    dominates.entry(d).or_insert_with(HashSet::new).insert(dby);
-                    *dominated_by.entry(dby).or_insert(0) += 1;
-                }
-            }
-
-            if dominated_by.get(&i_id).is_none() {
-                fronts[0].insert(i_id);
-            }
-        }
-
-        let mut i = 0;
-        while !fronts[i].is_empty() {
-            let mut new_front = HashSet::new();
-
-            for id in fronts[i].iter() {
-                if let Some(set) = dominates.get(id) {
-                    for dominated_id in set.iter() {
-                        dominated_by.entry(*dominated_id).and_modify(|v| {
-                            if v > &mut 0 {
-                                *v -= 1
-                            }
-                        });
-
-                        match dominated_by.get(dominated_id) {
-                            None | Some(0) => {
-                                if !new_front.contains(dominated_id) {
-                                    new_front.insert(*dominated_id);
-                                }
-                            }
-                            _ => (),
-                        }
-                    }
-                }
-            }
-
-            i += 1;
-            fronts.push(new_front);
-        }
-
-        let mut flat_fronts: Vec<Candidate<S>> = Vec::with_capacity(fronts.len());
-        for (fidx, f) in fronts.into_iter().enumerate() {
-            for id in f {
-                let sol = sols.remove(&id).unwrap();
+        let mut flat_fronts: Vec<Candidate<S>> = Vec::with_capacity(pop.len());
+        for (fidx, f) in ens_fronts.into_iter().enumerate() {
+            for index in f {
+                let p = &pop[index];
+                let id = p.id;
 
                 flat_fronts.push(Candidate {
                     id,
-                    sol,
+                    sol: p.sol.clone(),
                     front: fidx,
-                    distance: 0.,
+                    distance: 0.0,
                     niche: 0
                 });
             }
@@ -327,20 +270,20 @@ impl<'a, S> NSGA3Optimizer<'a, S>
 
         //nsga3 sort by hyperplane
         let (array_of_fronts, points) = NSGA3Optimizer::separate_fronts_and_points(&self, &fronts);
-        // let (non_dominated, worst_front) = get_non_dominated_and_last_fronts(&array_of_fronts);
-        let mut better_half = vec![];
-        let mut curr_better_front_index = 0;
-        while better_half.len() < fronts.len() / 2
-        {
-            for inicies in array_of_fronts[curr_better_front_index].iter()
-            {
-                better_half.push(*inicies);
-            }
-            curr_better_front_index += 1;
-        }
+        let (non_dominated, worst_front) = get_non_dominated_and_last_fronts(&array_of_fronts);
+        // let mut better_half = vec![];
+        // let mut curr_better_front_index = 0;
+        // while better_half.len() < fronts.len() / 2
+        // {
+        //     for inicies in array_of_fronts[curr_better_front_index].iter()
+        //     {
+        //         better_half.push(*inicies);
+        //     }
+        //     curr_better_front_index += 1;
+        // }
         //todo подумать над этим говном:
-        // self.hyper_plane.update(&points, &non_dominated);
-        self.hyper_plane.update(&points, &better_half);
+        self.hyper_plane.update(&points, &non_dominated);
+        // self.hyper_plane.update(&points, &better_half);
         let ideal_point = self.hyper_plane.ideal_point.clone();
         let nadir_point = self.hyper_plane.nadir_point.clone().unwrap();
 
@@ -597,12 +540,11 @@ impl Hyperplane {
         let weights = Hyperplane::eye(&points[0].len(), Some(1.), Some(1e6)).clone();
 
         let mut preprocessed_points = vec![];
-        let a = 1;
+
         match &self.extreme_point {
             Some(previous_points) => {
                 for previous_point in previous_points
                 {
-                    let b = 1;
                     preprocessed_points.push(previous_point.clone())
                 }
             }

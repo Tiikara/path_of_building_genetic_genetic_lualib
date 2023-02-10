@@ -635,8 +635,8 @@ fn test_multiply_2d_matrix_and_rised_2d_matrix()
     {
         for (res_dim2, expected_dim2) in res_dim1.iter().zip(expected_dim1)
         {
-            println!("{:?}", res_dim2);
-            println!("{:?}", expected_dim2);
+            // println!("{:?}", res_dim2);
+            // println!("{:?}", expected_dim2);
             assert!(vec_compare(res_dim2, expected_dim2))
         }
     }
@@ -1828,8 +1828,8 @@ fn test_calc_perpendicular_distance() {
     let result = calc_perpendicular_distance(&n, &niches);
     for (res_row, exp_row) in result.iter().zip(&expected)
     {
-        println!("{:?}", res_row);
-        println!("{:?}", exp_row);
+        // println!("{:?}", res_row);
+        // println!("{:?}", exp_row);
         assert!(vec_compare(res_row, exp_row));
     }
 }
