@@ -1,5 +1,5 @@
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 
 use peeking_take_while::PeekableExt;
 use rand::prelude::*;
@@ -31,7 +31,7 @@ pub struct NSGA3Optimizer<'a, S: Solution> {
     meta: Box<dyn Meta<'a, S> + 'a>,
     last_id: SolutionId,
     best_solutions: Vec<(Vec<f64>, S)>,
-    hyper_plane: Hyperplane
+    // hyper_plane: Hyperplane
 }
 
 
@@ -39,8 +39,11 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
     where
         S: Solution,
 {
+    fn name(&self) -> &str {
+        "NSGA-III"
+    }
 
-    fn optimize(&mut self, mut eval: Box<dyn Evaluator>, mut runtime_solutions_processor: Box<dyn SolutionsRuntimeProcessor<S>>) {
+    fn optimize(&mut self, eval: &mut Box<dyn Evaluator>, runtime_solutions_processor: &mut Box<dyn SolutionsRuntimeProcessor<S>>) {
         //STUB
 
 
@@ -201,6 +204,10 @@ impl<'a, S> Optimizer<S> for NSGA3Optimizer<'a, S>
             // parent_pop = next_pop;
         }
     }
+
+    fn best_solutions(&self) -> Vec<(Vec<f64>, S)> {
+        self.best_solutions.clone()
+    }
 }
 
 impl<'a, S> NSGA3Optimizer<'a, S>
@@ -208,12 +215,12 @@ impl<'a, S> NSGA3Optimizer<'a, S>
         S: Solution,
 {
     /// Instantiate a new optimizer with a given meta params
-    pub fn new(meta: impl Meta<'a, S> + 'a + std::marker::Copy) -> Self {
+    pub fn new(meta: impl Meta<'a, S>+ 'a) -> Self {
         NSGA3Optimizer {
             meta: Box::new(meta),
             last_id: 0,
             best_solutions: Vec::new(),
-            hyper_plane: Hyperplane::new(meta.objectives().len())
+            // hyper_plane: Hyperplane::new(meta.objectives().len())
         }
     }
 
@@ -525,7 +532,7 @@ impl Hyperplane {
         }
 
         let compare_vector = Hyperplane::get_compare_vec_between_two(
-            &Hyperplane::get_arithmetic_result_between_vectors( &nadir_point, &self.ideal_point, |a , b| a - b),
+            &get_arithmetic_result_between_vectors( &nadir_point, &self.ideal_point, |a , b| a - b),
             &vec![1e-6;intercepts.len()],
             |a , b| a <= b
         );

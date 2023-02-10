@@ -9,13 +9,15 @@ use plotters::prelude::*;
 use crate::mo::array_solution::{ArrayOptimizerParams, ArraySolution, ArraySolutionEvaluator, SolutionsRuntimeArrayProcessor};
 use crate::mo::evaluator::{DefaultEvaluator, Evaluator};
 use crate::mo::optimizers::nsga2::NSGA2Optimizer;
-use crate::mo::optimizers::Optimizer;
+use crate::mo::optimizers::{nsga3_self_impl, Optimizer};
 use crate::mo::problem::Problem;
-use crate::mo::{Ratio, SolutionsRuntimeProcessor};
+use crate::mo::{Meta, Ratio, SolutionsRuntimeProcessor};
 use std::io::Write;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use rand::{Rng, thread_rng};
+use crate::mo::optimizers::nsga3::NSGA3Optimizer;
+use crate::mo::optimizers::reference_directions::ReferenceDirections;
 use crate::mo::problem::dtlz::dtlz1::Dtlz1;
 use crate::mo::problem::dtlz::dtlz2::Dtlz2;
 use crate::mo::problem::dtlz::dtlz3::Dtlz3;
@@ -130,6 +132,7 @@ impl ProblemsSolver
 
     fn calc_best_solutions_and_print_to_3d_plots(&self, dir: &std::path::Path)
     {
+        // let mut multi_threaded_runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
         let mut multi_threaded_runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
 
         multi_threaded_runtime.block_on(async move {
@@ -522,10 +525,13 @@ fn print_3d_images_for_optimizers() {
         test_problems.extend(dtlz_test_problems(n_var, 3));
     }
 
+    // test_problems.push(ProblemsSolver::create_test_problem(&Dtlz1::new(4, 3)));
+
     let problem_solver = ProblemsSolver::new(
         test_problems,
         vec![
-            |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params))
+            |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
+            |optimizer_params: ArrayOptimizerParams| Box::new(nsga3_self_impl::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(3, 12).reference_directions))
         ],
     );
 
@@ -553,7 +559,11 @@ fn calc_output_metric_for_optimizers() {
     let problem_solver = ProblemsSolver::new(
         test_problems,
         vec![
-            |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params))
+            |optimizer_params: ArrayOptimizerParams| Box::new(NSGA2Optimizer::new(optimizer_params)),
+            |optimizer_params: ArrayOptimizerParams| {
+                let count_of_objectives = optimizer_params.objectives().len();
+                Box::new(nsga3_self_impl::NSGA3Optimizer::new(optimizer_params, ReferenceDirections::new(count_of_objectives, count_of_objectives*4).reference_directions))
+            }
         ],
     );
 
